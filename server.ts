@@ -384,6 +384,10 @@ async function handleInvoiceDetailsRequest(req: Request): Promise<Response> {
   }
 }
 
+function normalizeIban(iban: string): string {
+  return iban.toUpperCase().replace(/\s/g, "");
+}
+
 async function handleMoneriumOrderPlacement(req: Request): Promise<Response> {
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
@@ -454,7 +458,7 @@ async function handleMoneriumOrderPlacement(req: Request): Promise<Response> {
     const orderPayload = {
       amount: amount.toString(),
       currency: "eur",
-      message: `Send EUR ${amount} to ${iban} at ${new Date()
+      message: `Send EUR ${amount} to ${normalizeIban(iban)} at ${new Date()
         .toISOString()
         .replace(/\.\d{3}Z$/, "Z")}`,
       signature: "0x", // Placeholder, will be replaced
@@ -463,7 +467,7 @@ async function handleMoneriumOrderPlacement(req: Request): Promise<Response> {
       counterpart: {
         identifier: {
           standard: "iban",
-          iban: iban.toUpperCase().replace(/\s/g, ""),
+          iban: normalizeIban(iban),
         },
         details: {},
       },

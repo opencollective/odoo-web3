@@ -181,6 +181,36 @@
       );
 
       function InvoiceCard({ invoice, onPreview, odooUrl }) {
+        const [memo, setMemo] = useState(invoice.ref || "");
+        const [paying, setPaying] = useState(false);
+        const [payError, setPayError] = useState(null);
+        const [paySuccess, setPaySuccess] = useState(null);
+        const [accessToken, setAccessToken] = useState("");
+        const [environment, setEnvironment] = useState("sandbox");
+
+        useEffect(() => {
+          setMemo(invoice.ref || "");
+          setPayError(null);
+          setPaySuccess(null);
+        }, [invoice.id, invoice.ref]);
+
+        useEffect(() => {
+          try {
+            const stored = localStorage.getItem("monerium_connection");
+            if (stored) {
+              const data = JSON.parse(stored);
+              if (data.accessToken) {
+                setAccessToken(data.accessToken);
+              }
+              if (data.environment) {
+                setEnvironment(data.environment);
+              }
+            }
+          } catch (err) {
+            console.error("Failed to load Monerium connection:", err);
+          }
+        }, []);
+
         const isIncoming =
           invoice.move_type === "in_invoice" ||
           invoice.move_type === "in_refund";
@@ -194,6 +224,61 @@
           e.stopPropagation();
           const odooInvoiceUrl = `${odooUrl}/web#id=${invoice.id}&model=account.move&view_type=form`;
           window.open(odooInvoiceUrl, "_blank", "noopener,noreferrer");
+        };
+
+        const canPay =
+          invoice.payment_state !== "paid" && invoice.bank_account_number;
+
+        const handlePay = async () => {
+          if (!canPay) return;
+          if (!accessToken) {
+            setPayError("Connect to Monerium first from the Monerium page.");
+            return;
+          }
+
+          setPaying(true);
+          setPayError(null);
+          setPaySuccess(null);
+
+          try {
+            const response = await fetch("/api/monerium/order", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                amount: invoice.amount_total,
+                iban: invoice.bank_account_number,
+                memo: memo,
+                environment: environment,
+                accessToken: accessToken,
+                companyName: invoice.partner_name || "Unknown",
+                firstName: "",
+                lastName: "",
+              }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+              let msg = data.error || data.message || "Failed to place order";
+              if (data.errors && data.errors.amount) {
+                msg = `${data.errors.amount} (balance: €${data.errors.balance})`;
+              }
+              throw new Error(msg);
+            }
+
+            setPaySuccess(
+              data.id
+                ? `Payment order ${data.id} created`
+                : "Payment order created"
+            );
+          } catch (err) {
+            console.error("❌ Payment failed:", err.message || err);
+            setPayError(err.message || "Failed to initiate payment");
+          } finally {
+            setPaying(false);
+          }
         };
 
         return (
@@ -338,9 +423,59 @@
               </div>
             </div>
 
+            {canPay && (
+              <div className="mt-4 space-y-3">
+                {paySuccess ? (
+                  <div className="text-xs text-green-600 bg-green-50 border border-green-100 rounded px-3 py-2">
+                    {paySuccess}
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Memo / Reference
+                      </label>
+                      <input
+                        type="text"
+                        value={memo}
+                        onChange={(e) => setMemo(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      />
+                    </div>
+                    {payError && (
+                      <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded px-3 py-2">
+                        {payError}
+                      </div>
+                    )}
+                    <button
+                      onClick={handlePay}
+                      disabled={paying}
+                      className="w-full flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg transition-colors"
+                    >
+                      <span>
+                        {paying ? "Processing..." : "Pay with Monerium"}
+                      </span>
+                    </button>
+                  </>
+                )}
+                {!accessToken && !paySuccess && (
+                  <p className="text-xs text-gray-500">
+                    Connect to Monerium first from the{" "}
+                    <a
+                      href="/monerium"
+                      className="text-blue-600 hover:underline"
+                    >
+                      Monerium page
+                    </a>
+                    .
+                  </p>
+                )}
+              </div>
+            )}
+
             <button
               onClick={() => onPreview(invoice)}
-              className="w-full flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+              className="mt-4 w-full flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
             >
               <EyeIcon />
               <span>View PDF</span>
