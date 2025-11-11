@@ -1,0 +1,2035 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Odoo Invoices</title>
+    <script
+      crossorigin
+      src="https://unpkg.com/react@18/umd/react.production.min.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
+    ></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.294.0/lucide.min.css"
+    />
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+          "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans",
+          "Helvetica Neue", sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      .sidebar-enter {
+        transform: translateX(100%);
+      }
+      .sidebar-enter-active {
+        transform: translateX(0);
+        transition: transform 300ms ease-out;
+      }
+      .sidebar-exit {
+        transform: translateX(0);
+      }
+      .sidebar-exit-active {
+        transform: translateX(100%);
+        transition: transform 300ms ease-in;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect } = React;
+
+      // Icons (SVG)
+      const FileIcon = () => (
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+          />
+        </svg>
+      );
+
+      const EyeIcon = () => (
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+          />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+          />
+        </svg>
+      );
+
+      const XIcon = () => (
+        <svg
+          className="w-6 h-6"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M6 18L18 6M6 6l12 12"
+          />
+        </svg>
+      );
+
+      const ExternalLinkIcon = () => (
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+          />
+        </svg>
+      );
+
+      const LoaderIcon = () => (
+        <svg
+          className="animate-spin h-8 w-8 text-blue-600"
+          fill="none"
+          viewBox="0 0 24 24"
+        >
+          <circle
+            className="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            strokeWidth="4"
+          ></circle>
+          <path
+            className="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+          ></path>
+        </svg>
+      );
+
+      const DownloadIcon = () => (
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+          />
+        </svg>
+      );
+
+      const SettingsIcon = () => (
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+          />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+          />
+        </svg>
+      );
+
+      function InvoiceCard({ invoice, onPreview, odooUrl }) {
+        const isIncoming =
+          invoice.move_type === "in_invoice" ||
+          invoice.move_type === "in_refund";
+        const statusColor = {
+          draft: "bg-gray-100 text-gray-800",
+          posted: "bg-green-100 text-green-800",
+          cancel: "bg-red-100 text-red-800",
+        }[invoice.state];
+
+        const openInOdoo = (e) => {
+          e.stopPropagation();
+          const odooInvoiceUrl = `${odooUrl}/web#id=${invoice.id}&model=account.move&view_type=form`;
+          window.open(odooInvoiceUrl, "_blank", "noopener,noreferrer");
+        };
+
+        return (
+          <div className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-shadow">
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center space-x-3">
+                <div
+                  className={`p-2 rounded-lg ${
+                    isIncoming
+                      ? "bg-blue-100 text-blue-600"
+                      : "bg-purple-100 text-purple-600"
+                  }`}
+                >
+                  <FileIcon />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center space-x-2">
+                    <h3 className="font-semibold text-lg text-gray-900">
+                      {invoice.name}
+                    </h3>
+                    {odooUrl && (
+                      <button
+                        onClick={openInOdoo}
+                        className="text-gray-400 hover:text-purple-600 transition-colors"
+                        title="Open in Odoo"
+                      >
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                          />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-500">
+                    {isIncoming ? "📥 Incoming" : "📤 Outgoing"}
+                  </p>
+                </div>
+              </div>
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-medium ${statusColor}`}
+              >
+                {invoice.state}
+              </span>
+            </div>
+
+            <div className="space-y-2 mb-4">
+              {invoice.ref && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Reference:</span>
+                  <span className="font-medium text-gray-900">
+                    {invoice.ref}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Date:</span>
+                <span className="font-medium text-gray-900">
+                  {invoice.date}
+                </span>
+              </div>
+              {invoice.invoice_date_due && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Due Date:</span>
+                  <span className="font-medium text-gray-900">
+                    {invoice.invoice_date_due}
+                  </span>
+                </div>
+              )}
+              {invoice.payment_state && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Payment:</span>
+                  <span
+                    className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      invoice.payment_state === "paid"
+                        ? "bg-green-100 text-green-800"
+                        : invoice.payment_state === "partial"
+                        ? "bg-yellow-100 text-yellow-800"
+                        : invoice.payment_state === "not_paid"
+                        ? "bg-red-100 text-red-800"
+                        : "bg-gray-100 text-gray-800"
+                    }`}
+                  >
+                    {invoice.payment_state.replace("_", " ")}
+                  </span>
+                </div>
+              )}
+              {invoice.partner_name && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Partner:</span>
+                  <span className="font-medium text-gray-900">
+                    {invoice.partner_name}
+                  </span>
+                </div>
+              )}
+              {invoice.bank_account_number && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Bank Account:</span>
+                  <span className="font-mono text-xs text-gray-700">
+                    {invoice.bank_account_number}
+                  </span>
+                </div>
+              )}
+
+              {invoice.invoice_line_ids &&
+                invoice.invoice_line_ids.length > 0 && (
+                  <div className="pt-2 border-t">
+                    <div className="text-xs text-gray-500 mb-2">
+                      Line Items:
+                    </div>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {invoice.invoice_line_ids.map((line) => (
+                        <div
+                          key={line.id}
+                          className="flex justify-between text-xs"
+                        >
+                          <span className="text-gray-700 truncate flex-1 mr-2">
+                            {line.name}
+                          </span>
+                          <span className="font-medium text-gray-900 whitespace-nowrap">
+                            €{line.price_total.toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              <div className="flex justify-between text-sm pt-2 border-t">
+                <span className="text-gray-500">Total Amount:</span>
+                <span className="font-bold text-lg text-gray-900">
+                  €{invoice.amount_total.toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => onPreview(invoice)}
+              className="w-full flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              <EyeIcon />
+              <span>View PDF</span>
+            </button>
+          </div>
+        );
+      }
+
+      function PDFSidebar({ invoice, onClose, odooUrl, sessionId }) {
+        if (!invoice) return null;
+
+        // Build proxy URL with session_id
+        const proxyUrl = React.useMemo(() => {
+          if (!sessionId) return "";
+          const params = new URLSearchParams({
+            url: invoice.pdf_url,
+            session_id: sessionId,
+          });
+          return `/api/pdf/view?${params.toString()}`;
+        }, [invoice.pdf_url, sessionId]);
+
+        const openInNewTab = () => {
+          window.open(invoice.pdf_url, "_blank", "noopener,noreferrer");
+        };
+
+        const openInOdoo = () => {
+          // Construct Odoo web interface URL for the invoice
+          const odooInvoiceUrl = `${odooUrl}/web#id=${invoice.id}&model=account.move&view_type=form`;
+          window.open(odooInvoiceUrl, "_blank", "noopener,noreferrer");
+        };
+
+        return (
+          <>
+            <div
+              className="fixed inset-0 bg-black bg-opacity-50 z-40"
+              onClick={onClose}
+            ></div>
+            <div className="fixed right-0 top-0 h-full w-full md:w-3/4 lg:w-2/3 xl:w-1/2 bg-white shadow-2xl z-50 flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b bg-gray-50">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">
+                    {invoice.name}
+                  </h2>
+                  <p className="text-sm text-gray-500">
+                    {invoice.partner_name || "No partner"}
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  {odooUrl && (
+                    <button
+                      onClick={openInOdoo}
+                      className="p-2 hover:bg-purple-100 text-purple-600 rounded-lg transition-colors"
+                      title="Open in Odoo"
+                    >
+                      <ExternalLinkIcon />
+                    </button>
+                  )}
+                  <button
+                    onClick={openInNewTab}
+                    className="p-2 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors"
+                    title="Open in new tab"
+                  >
+                    <ExternalLinkIcon />
+                  </button>
+                  <a
+                    href={invoice.pdf_url}
+                    download
+                    className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+                    title="Download PDF"
+                  >
+                    <DownloadIcon />
+                  </a>
+                  <button
+                    onClick={onClose}
+                    className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+                  >
+                    <XIcon />
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-hidden bg-gray-100">
+                {sessionId && proxyUrl ? (
+                  <iframe
+                    src={proxyUrl}
+                    className="w-full h-full border-0"
+                    title={`PDF: ${invoice.name}`}
+                    onError={() => {
+                      console.error("Failed to load PDF");
+                    }}
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <LoaderIcon />
+                      <p className="text-gray-500 mt-4">Loading PDF...</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="p-4 border-t bg-gray-50 space-y-2">
+                <div className="flex justify-between items-center text-sm text-gray-600">
+                  <span>
+                    Amount:{" "}
+                    <strong className="text-gray-900">
+                      €{invoice.amount_total.toFixed(2)}
+                    </strong>
+                  </span>
+                  {invoice.payment_state && (
+                    <span
+                      className={`px-2 py-1 rounded text-xs font-medium ${
+                        invoice.payment_state === "paid"
+                          ? "bg-green-100 text-green-800"
+                          : invoice.payment_state === "partial"
+                          ? "bg-yellow-100 text-yellow-800"
+                          : invoice.payment_state === "not_paid"
+                          ? "bg-red-100 text-red-800"
+                          : "bg-gray-100 text-gray-800"
+                      }`}
+                    >
+                      {invoice.payment_state.replace("_", " ")}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500">
+                  If the PDF doesn't load, try opening in a new tab or
+                  downloading it.
+                </p>
+              </div>
+            </div>
+          </>
+        );
+      }
+
+      // Router component to handle URL-based navigation
+      function Router({ children }) {
+        const [currentPath, setCurrentPath] = useState(
+          window.location.pathname
+        );
+
+        useEffect(() => {
+          const onLocationChange = () => {
+            setCurrentPath(window.location.pathname);
+          };
+
+          window.addEventListener("popstate", onLocationChange);
+          return () => window.removeEventListener("popstate", onLocationChange);
+        }, []);
+
+        return children({
+          currentPath,
+          navigate: (path) => {
+            window.history.pushState({}, "", path);
+            setCurrentPath(path);
+          },
+        });
+      }
+
+      // Invoice Details View Component
+      function InvoiceDetailsView({
+        invoiceId,
+        connectionSettings,
+        sessionId,
+        navigate,
+      }) {
+        const [invoice, setInvoice] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+
+        useEffect(() => {
+          const fetchInvoiceDetails = async () => {
+            setLoading(true);
+            setError(null);
+
+            const params = new URLSearchParams();
+            Object.entries(connectionSettings).forEach(([key, value]) => {
+              if (value) params.append(key, value);
+            });
+
+            try {
+              const response = await fetch(
+                `/api/odoo/invoices/${invoiceId}?${params.toString()}`
+              );
+              const data = await response.json();
+
+              if (!response.ok) {
+                throw new Error(
+                  data.error || "Failed to fetch invoice details"
+                );
+              }
+
+              setInvoice(data.invoice);
+            } catch (err) {
+              setError(err.message);
+            } finally {
+              setLoading(false);
+            }
+          };
+
+          fetchInvoiceDetails();
+        }, [invoiceId, connectionSettings]);
+
+        if (loading) {
+          return (
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+              <LoaderIcon />
+            </div>
+          );
+        }
+
+        if (error) {
+          return (
+            <div className="min-h-screen bg-gray-50 p-8">
+              <div className="max-w-7xl mx-auto">
+                <button
+                  onClick={() => navigate("/")}
+                  className="mb-4 px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg"
+                >
+                  ← Back to Invoices
+                </button>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <p className="text-red-800">{error}</p>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        if (!invoice) return null;
+
+        const isIncoming =
+          invoice.move_type === "in_invoice" ||
+          invoice.move_type === "in_refund";
+        const statusColor = {
+          draft: "bg-gray-100 text-gray-800",
+          posted: "bg-green-100 text-green-800",
+          cancel: "bg-red-100 text-red-800",
+        }[invoice.state];
+
+        const paymentStateColor =
+          {
+            paid: "bg-green-100 text-green-800",
+            partial: "bg-yellow-100 text-yellow-800",
+            not_paid: "bg-red-100 text-red-800",
+            in_payment: "bg-blue-100 text-blue-800",
+          }[invoice.payment_state] || "bg-gray-100 text-gray-800";
+
+        return (
+          <div className="min-h-screen bg-gray-50 p-8">
+            <div className="max-w-7xl mx-auto">
+              <button
+                onClick={() => navigate("/")}
+                className="mb-4 px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
+              >
+                ← Back to Invoices
+              </button>
+
+              <div className="bg-white rounded-lg shadow-lg p-8 mb-6">
+                <div className="flex items-start justify-between mb-6">
+                  <div>
+                    <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                      {invoice.name}
+                    </h1>
+                    <p className="text-gray-600">
+                      {isIncoming ? "📥 Incoming" : "📤 Outgoing"} Invoice
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <span
+                      className={`px-3 py-1 rounded-full text-sm font-medium ${statusColor}`}
+                    >
+                      {invoice.state}
+                    </span>
+                    {invoice.payment_state && (
+                      <span
+                        className={`px-3 py-1 rounded-full text-sm font-medium ${paymentStateColor}`}
+                      >
+                        {invoice.payment_state.replace("_", " ")}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-500 mb-1">
+                      Partner
+                    </h3>
+                    <p className="text-lg text-gray-900">
+                      {invoice.partner_name || "N/A"}
+                    </p>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-500 mb-1">
+                      Date
+                    </h3>
+                    <p className="text-lg text-gray-900">
+                      {invoice.invoice_date || invoice.date}
+                    </p>
+                  </div>
+                  {invoice.invoice_date_due && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-500 mb-1">
+                        Due Date
+                      </h3>
+                      <p className="text-lg text-gray-900">
+                        {invoice.invoice_date_due}
+                      </p>
+                    </div>
+                  )}
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-500 mb-1">
+                      Total Amount
+                    </h3>
+                    <p className="text-2xl font-bold text-gray-900">
+                      €{invoice.amount_total.toFixed(2)}
+                    </p>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-500 mb-1">
+                      Amount Due
+                    </h3>
+                    <p className="text-xl font-semibold text-gray-900">
+                      €{invoice.amount_residual.toFixed(2)}
+                    </p>
+                  </div>
+                  {invoice.ref && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-500 mb-1">
+                        Reference
+                      </h3>
+                      <p className="text-lg text-gray-900">{invoice.ref}</p>
+                    </div>
+                  )}
+                </div>
+
+                {invoice.bank_account_number && (
+                  <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+                    <h3 className="text-sm font-semibold text-blue-900 mb-1">
+                      Bank Account
+                    </h3>
+                    <p className="text-lg font-mono text-blue-900">
+                      {invoice.bank_account_number}
+                    </p>
+                  </div>
+                )}
+
+                {invoice.narration && (
+                  <div className="mb-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                      Notes
+                    </h3>
+                    <p className="text-gray-700 whitespace-pre-wrap">
+                      {invoice.narration}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {invoice.invoice_line_ids &&
+                invoice.invoice_line_ids.length > 0 && (
+                  <div className="bg-white rounded-lg shadow-lg p-8 mb-6">
+                    <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                      📦 Line Items
+                    </h2>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-gray-200">
+                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
+                              Description
+                            </th>
+                            <th className="text-right py-3 px-4 text-sm font-semibold text-gray-700">
+                              Quantity
+                            </th>
+                            <th className="text-right py-3 px-4 text-sm font-semibold text-gray-700">
+                              Unit Price
+                            </th>
+                            <th className="text-right py-3 px-4 text-sm font-semibold text-gray-700">
+                              Subtotal
+                            </th>
+                            <th className="text-right py-3 px-4 text-sm font-semibold text-gray-700">
+                              Total
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {invoice.invoice_line_ids.map((line) => (
+                            <tr
+                              key={line.id}
+                              className="border-b border-gray-100"
+                            >
+                              <td className="py-3 px-4 text-gray-900">
+                                {line.name}
+                              </td>
+                              <td className="text-right py-3 px-4 text-gray-900">
+                                {line.quantity}
+                              </td>
+                              <td className="text-right py-3 px-4 text-gray-900">
+                                €{line.price_unit.toFixed(2)}
+                              </td>
+                              <td className="text-right py-3 px-4 text-gray-900">
+                                €{line.price_subtotal.toFixed(2)}
+                              </td>
+                              <td className="text-right py-3 px-4 font-semibold text-gray-900">
+                                €{line.price_total.toFixed(2)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="border-t-2 border-gray-300">
+                            <td colSpan="3" className="py-3 px-4"></td>
+                            <td className="text-right py-3 px-4 font-semibold text-gray-700">
+                              Subtotal:
+                            </td>
+                            <td className="text-right py-3 px-4 font-semibold text-gray-900">
+                              €{invoice.amount_untaxed.toFixed(2)}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td colSpan="3" className="py-3 px-4"></td>
+                            <td className="text-right py-3 px-4 font-semibold text-gray-700">
+                              Tax:
+                            </td>
+                            <td className="text-right py-3 px-4 font-semibold text-gray-900">
+                              €{invoice.amount_tax.toFixed(2)}
+                            </td>
+                          </tr>
+                          <tr className="border-t border-gray-200">
+                            <td colSpan="3" className="py-3 px-4"></td>
+                            <td className="text-right py-3 px-4 text-lg font-bold text-gray-900">
+                              Total:
+                            </td>
+                            <td className="text-right py-3 px-4 text-lg font-bold text-gray-900">
+                              €{invoice.amount_total.toFixed(2)}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+              {invoice.attachments && invoice.attachments.length > 0 && (
+                <div className="bg-white rounded-lg shadow-lg p-8 mb-6">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                    📎 Attachments ({invoice.attachments.length})
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {invoice.attachments.map((attachment) => (
+                      <a
+                        key={attachment.id}
+                        href={attachment.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <FileIcon />
+                        <div className="ml-3 flex-1">
+                          <p className="text-sm font-medium text-gray-900">
+                            {attachment.name}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {attachment.mimetype}
+                          </p>
+                          {attachment.file_size && (
+                            <p className="text-xs text-gray-500">
+                              {(attachment.file_size / 1024).toFixed(2)} KB
+                            </p>
+                          )}
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {invoice.activities && invoice.activities.length > 0 && (
+                <div className="bg-white rounded-lg shadow-lg p-8 mb-6">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                    📅 Activities ({invoice.activities.length})
+                  </h2>
+                  <div className="space-y-4">
+                    {invoice.activities.map((activity) => (
+                      <div
+                        key={activity.id}
+                        className="border-l-4 border-blue-500 pl-4 py-2"
+                      >
+                        <h3 className="font-semibold text-gray-900">
+                          {activity.summary || "Activity"}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Due: {activity.date_deadline} • State:{" "}
+                          {activity.state}
+                        </p>
+                        {activity.note && (
+                          <p className="text-sm text-gray-700 mt-1">
+                            {activity.note}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {invoice.messages && invoice.messages.length > 0 && (
+                <div className="bg-white rounded-lg shadow-lg p-8">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                    💬 Messages ({invoice.messages.length})
+                  </h2>
+                  <div className="space-y-4">
+                    {invoice.messages.map((message) => (
+                      <div
+                        key={message.id}
+                        className="border-b border-gray-200 pb-4 last:border-0"
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <p className="font-semibold text-gray-900">
+                            {Array.isArray(message.author_id)
+                              ? message.author_id[1]
+                              : "System"}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            {new Date(message.date).toLocaleString()}
+                          </p>
+                        </div>
+                        <div
+                          className="text-gray-700 text-sm"
+                          dangerouslySetInnerHTML={{ __html: message.body }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // Monerium Payment View - Simplified (No SDK)
+      function MoneriumView({ navigate }) {
+        const [formData, setFormData] = useState({
+          amount: "",
+          iban: "",
+          memo: "",
+          environment: "sandbox",
+          recipientType: "company",
+          companyName: "",
+          firstName: "",
+          lastName: "",
+        });
+        const [accessToken, setAccessToken] = useState("");
+        const [connected, setConnected] = useState(false);
+        const [submitting, setSubmitting] = useState(false);
+        const [loading, setLoading] = useState(false);
+        const [success, setSuccess] = useState(null);
+        const [error, setError] = useState(null);
+
+        // Helper functions for OAuth PKCE flow
+        const generateRandomString = (length) => {
+          const charset =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+          let result = "";
+          const randomValues = new Uint8Array(length);
+          crypto.getRandomValues(randomValues);
+          for (let i = 0; i < length; i++) {
+            result += charset[randomValues[i] % charset.length];
+          }
+          return result;
+        };
+
+        const sha256 = async (plain) => {
+          const encoder = new TextEncoder();
+          const data = encoder.encode(plain);
+          const hash = await crypto.subtle.digest("SHA-256", data);
+          return hash;
+        };
+
+        const base64urlencode = (buffer) => {
+          const bytes = new Uint8Array(buffer);
+          let str = "";
+          for (let i = 0; i < bytes.byteLength; i++) {
+            str += String.fromCharCode(bytes[i]);
+          }
+          return btoa(str)
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=/g, "");
+        };
+
+        const generatePKCE = async () => {
+          const codeVerifier = generateRandomString(128);
+          const hashed = await sha256(codeVerifier);
+          const codeChallenge = base64urlencode(hashed);
+          return { codeVerifier, codeChallenge };
+        };
+
+        // Load access token from localStorage on mount and check for OAuth callback
+        useEffect(() => {
+          const urlParams = new URLSearchParams(window.location.search);
+          const code = urlParams.get("code");
+          const errorParam = urlParams.get("error");
+          const errorDescription = urlParams.get("error_description");
+          const storedData = localStorage.getItem("monerium_oauth");
+
+          // Check for OAuth error
+          if (errorParam) {
+            const errorMsg = errorDescription
+              ? decodeURIComponent(errorDescription.replace(/\+/g, " "))
+              : errorParam;
+            setError(`OAuth Error: ${errorMsg}`);
+            console.error("❌ OAuth Error:", errorParam, errorDescription);
+            window.history.replaceState({}, document.title, "/monerium");
+            localStorage.removeItem("monerium_oauth");
+            return;
+          }
+
+          // Handle OAuth callback
+          if (code && storedData) {
+            const { codeVerifier, clientId, environment } =
+              JSON.parse(storedData);
+            exchangeCodeForToken(code, codeVerifier, clientId, environment);
+            window.history.replaceState({}, document.title, "/monerium");
+            return;
+          }
+
+          // Try to load existing connection
+          const stored = localStorage.getItem("monerium_connection");
+          if (stored) {
+            try {
+              const data = JSON.parse(stored);
+              if (data.accessToken) {
+                setAccessToken(data.accessToken);
+                setConnected(true);
+                setFormData((prev) => ({
+                  ...prev,
+                  environment: data.environment || "sandbox",
+                }));
+              }
+            } catch (err) {
+              console.error("Failed to load token:", err);
+            }
+          }
+        }, []);
+
+        const exchangeCodeForToken = async (
+          code,
+          codeVerifier,
+          clientId,
+          environment
+        ) => {
+          try {
+            setLoading(true);
+            setError(null);
+
+            console.log("🔄 Sending token exchange request to backend...");
+
+            const tokenResponse = await fetch("/api/monerium/token", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                code,
+                codeVerifier,
+                clientId,
+                environment,
+              }),
+            });
+
+            if (!tokenResponse.ok) {
+              const errorData = await tokenResponse.json();
+              throw new Error(
+                errorData.error_description ||
+                  errorData.error ||
+                  "Failed to get access token"
+              );
+            }
+
+            const tokenData = await tokenResponse.json();
+            const token = tokenData.access_token;
+
+            // Save to localStorage
+            localStorage.setItem(
+              "monerium_connection",
+              JSON.stringify({ accessToken: token, environment })
+            );
+            localStorage.removeItem("monerium_oauth");
+
+            setAccessToken(token);
+            setConnected(true);
+            setFormData((prev) => ({ ...prev, environment }));
+            setSuccess("Connected to Monerium successfully!");
+          } catch (err) {
+            console.error("Token exchange failed:", err);
+            setError(err.message || "Failed to complete authorization");
+            localStorage.removeItem("monerium_oauth");
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const handleConnect = async (clientId, environment) => {
+          if (!clientId.trim()) {
+            setError("Please enter a client ID");
+            return;
+          }
+
+          try {
+            setLoading(true);
+            setError(null);
+
+            const { codeVerifier, codeChallenge } = await generatePKCE();
+
+            localStorage.setItem(
+              "monerium_oauth",
+              JSON.stringify({ codeVerifier, clientId, environment })
+            );
+
+            const baseUrl =
+              environment === "sandbox"
+                ? "https://api.monerium.dev"
+                : "https://api.monerium.app";
+            const authUrl = new URL(`${baseUrl}/auth`);
+            authUrl.searchParams.set("client_id", clientId);
+            authUrl.searchParams.set(
+              "redirect_uri",
+              window.location.origin + "/monerium"
+            );
+            authUrl.searchParams.set("code_challenge", codeChallenge);
+            authUrl.searchParams.set("code_challenge_method", "S256");
+            authUrl.searchParams.set("response_type", "code");
+
+            console.log("🚀 Redirecting to Monerium Auth");
+            window.location.href = authUrl.toString();
+          } catch (err) {
+            console.error("Authorization failed:", err);
+            setError(err.message || "Failed to start authorization");
+            setLoading(false);
+          }
+        };
+
+        const handleDisconnect = () => {
+          localStorage.removeItem("monerium_connection");
+          localStorage.removeItem("monerium_oauth");
+          setAccessToken("");
+          setConnected(false);
+          setSuccess(null);
+          setError(null);
+        };
+
+        const handleSubmit = async (e) => {
+          e.preventDefault();
+          setSubmitting(true);
+          setError(null);
+          setSuccess(null);
+
+          try {
+            console.log("💸 Initiating Payment:", formData);
+
+            if (!accessToken) {
+              throw new Error("Please set your access token first");
+            }
+
+            if (formData.recipientType === "company") {
+              if (!formData.companyName.trim()) {
+                throw new Error("Company name is required");
+              }
+            } else {
+              if (!formData.firstName.trim() || !formData.lastName.trim()) {
+                throw new Error("Recipient first and last name are required");
+              }
+            }
+
+            const payload = {
+              amount: formData.amount,
+              iban: formData.iban,
+              memo: formData.memo,
+              environment: formData.environment,
+              accessToken: accessToken,
+              firstName:
+                formData.recipientType === "individual"
+                  ? formData.firstName.trim()
+                  : "",
+              lastName:
+                formData.recipientType === "individual"
+                  ? formData.lastName.trim()
+                  : "",
+              companyName:
+                formData.recipientType === "company"
+                  ? formData.companyName.trim()
+                  : "",
+            };
+
+            console.log(">>> Placing order", accessToken);
+            // Call backend API to place order
+            const response = await fetch("/api/monerium/order", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+              const errorData = await response.json();
+              let msg =
+                errorData.error || errorData.message || "Failed to place order";
+              if (errorData.errors && errorData.errors.amount) {
+                msg = `${errorData.errors?.amount} (balance: €${errorData.errors?.balance})`;
+              }
+              throw new Error(msg);
+            }
+
+            const order = await response.json();
+            console.log("✅ Payment Order Placed:", order);
+
+            setSuccess(
+              `Payment order placed successfully! Order ID: ${
+                order.id || "unknown"
+              }`
+            );
+
+            // Reset form (keep environment)
+            setFormData((prev) => ({
+              amount: "",
+              iban: "",
+              memo: "",
+              environment: prev.environment,
+              recipientType: prev.recipientType,
+              companyName: "",
+              firstName: "",
+              lastName: "",
+            }));
+          } catch (err) {
+            console.error("❌ Payment failed:", err.message);
+            setError(err.message || "Failed to initiate payment");
+          } finally {
+            setSubmitting(false);
+          }
+        };
+
+        const handleChange = (e) => {
+          const { name, value } = e.target;
+          setFormData((prev) => {
+            if (name === "recipientType") {
+              return {
+                ...prev,
+                recipientType: value,
+                companyName: value === "company" ? prev.companyName : "",
+                firstName: value === "individual" ? prev.firstName : "",
+                lastName: value === "individual" ? prev.lastName : "",
+              };
+            }
+            return { ...prev, [name]: value };
+          });
+        };
+
+        return (
+          <div className="min-h-screen bg-gray-50">
+            <div className="max-w-3xl mx-auto px-4 py-8">
+              <div className="mb-8 flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <button
+                    onClick={() => navigate("/")}
+                    className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
+                  >
+                    ← Back
+                  </button>
+                  <h1 className="text-4xl font-bold text-gray-900">
+                    💳 Monerium Payment
+                  </h1>
+                </div>
+                {connected && (
+                  <button
+                    onClick={handleDisconnect}
+                    className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg transition-colors"
+                  >
+                    Disconnect
+                  </button>
+                )}
+              </div>
+
+              {error && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-800">{error}</p>
+                </div>
+              )}
+
+              {success && (
+                <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-green-800">{success}</p>
+                </div>
+              )}
+
+              {loading && (
+                <div className="flex items-center justify-center py-12">
+                  <LoaderIcon />
+                </div>
+              )}
+
+              {!connected && !loading && (
+                <div className="bg-white rounded-lg shadow-lg p-8">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-6">
+                    🔐 Connect to Monerium
+                  </h2>
+                  <p className="text-sm text-gray-600 mb-6">
+                    Enter your Monerium Client ID to connect your account. You
+                    can get a Client ID by creating an app at{" "}
+                    <a
+                      href="https://sandbox.monerium.dev/developers"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      sandbox.monerium.dev/developers
+                    </a>
+                    .
+                  </p>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const formData = new FormData(e.target);
+                      const environment = formData.get("environment");
+                      handleConnect(formData.get("clientId"), environment);
+                    }}
+                    className="space-y-6"
+                  >
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Environment
+                      </label>
+                      <select
+                        name="environment"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="sandbox">Sandbox</option>
+                        <option value="production">Production</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Client ID
+                      </label>
+                      <input
+                        type="text"
+                        name="clientId"
+                        placeholder="Your Monerium Client ID"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold rounded-lg transition-colors"
+                    >
+                      {loading ? "Connecting..." : "Connect with Monerium"}
+                    </button>
+                  </form>
+                  <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                    <p className="text-sm text-blue-800">
+                      <strong>Note:</strong> You'll be redirected to Monerium to
+                      authorize this application. Make sure your redirect URI is
+                      set to:{" "}
+                      <code className="bg-white px-2 py-1 rounded">
+                        {window.location.origin}/monerium
+                      </code>
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {connected && !loading && (
+                <div className="bg-white rounded-lg shadow-lg p-8">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-6">
+                    💸 Initiate Payment Order
+                  </h2>
+
+                  <form onSubmit={handleSubmit} className="space-y-6">
+                    <div>
+                      <span className="block text-sm font-medium text-gray-700 mb-2">
+                        Recipient Type
+                      </span>
+                      <div className="flex items-center space-x-4">
+                        <label className="inline-flex items-center space-x-2">
+                          <input
+                            type="radio"
+                            name="recipientType"
+                            value="company"
+                            checked={formData.recipientType === "company"}
+                            onChange={handleChange}
+                          />
+                          <span>Company</span>
+                        </label>
+                        <label className="inline-flex items-center space-x-2">
+                          <input
+                            type="radio"
+                            name="recipientType"
+                            value="individual"
+                            checked={formData.recipientType === "individual"}
+                            onChange={handleChange}
+                          />
+                          <span>Individual</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {formData.recipientType === "company" ? (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Company Name
+                        </label>
+                        <input
+                          type="text"
+                          name="companyName"
+                          value={formData.companyName}
+                          onChange={handleChange}
+                          placeholder="Recipient company name"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          required
+                        />
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            First Name
+                          </label>
+                          <input
+                            type="text"
+                            name="firstName"
+                            value={formData.firstName}
+                            onChange={handleChange}
+                            placeholder="Recipient first name"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Last Name
+                          </label>
+                          <input
+                            type="text"
+                            name="lastName"
+                            value={formData.lastName}
+                            onChange={handleChange}
+                            placeholder="Recipient last name"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            required
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Amount
+                      </label>
+                      <input
+                        type="number"
+                        name="amount"
+                        value={formData.amount}
+                        onChange={handleChange}
+                        step="0.01"
+                        min="0.01"
+                        placeholder="0.00"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Counterpart IBAN
+                      </label>
+                      <input
+                        type="text"
+                        name="iban"
+                        value={formData.iban}
+                        onChange={handleChange}
+                        placeholder="DE89370400440532013000"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Memo / Reference (optional)
+                      </label>
+                      <input
+                        type="text"
+                        name="memo"
+                        value={formData.memo}
+                        onChange={handleChange}
+                        placeholder="Payment reference or description"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        maxLength="140"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formData.memo.length}/140 characters
+                      </p>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold rounded-lg transition-colors"
+                    >
+                      {submitting ? "Processing..." : "Place Order"}
+                    </button>
+                  </form>
+
+                  <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                    <p className="text-sm text-blue-800">
+                      <strong>Note:</strong> Orders are signed on the server
+                      using the PRIVATE_KEY environment variable. The Ethereum
+                      address is derived from the private key, and the order is
+                      signed with viem before being sent to Monerium's API.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // Monthly Invoices View Component
+      function MonthlyInvoicesView({
+        year,
+        month,
+        connectionSettings,
+        sessionId,
+        navigate,
+      }) {
+        const [invoices, setInvoices] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        const [selectedInvoice, setSelectedInvoice] = useState(null);
+
+        useEffect(() => {
+          const fetchMonthlyInvoices = async () => {
+            setLoading(true);
+            setError(null);
+
+            const monthNum = parseInt(month);
+            const yearNum = parseInt(year);
+            const firstDay = `${yearNum}-${monthNum
+              .toString()
+              .padStart(2, "0")}-01`;
+
+            const lastDay = new Date(yearNum, monthNum, 0).getDate();
+            const lastDayStr = `${yearNum}-${monthNum
+              .toString()
+              .padStart(2, "0")}-${lastDay}`;
+
+            const params = new URLSearchParams();
+            Object.entries(connectionSettings).forEach(([key, value]) => {
+              if (value) params.append(key, value);
+            });
+            params.append("since", firstDay);
+            params.append("until", lastDayStr);
+            params.append("limit", "1000");
+
+            try {
+              const response = await fetch(
+                `/api/odoo/invoices?${params.toString()}`
+              );
+              const data = await response.json();
+
+              if (!response.ok) {
+                throw new Error(data.error || "Failed to fetch invoices");
+              }
+
+              setInvoices(data.invoices);
+            } catch (err) {
+              setError(err.message);
+            } finally {
+              setLoading(false);
+            }
+          };
+
+          fetchMonthlyInvoices();
+        }, [year, month, connectionSettings]);
+
+        const monthName = new Date(
+          parseInt(year),
+          parseInt(month) - 1,
+          1
+        ).toLocaleString("default", { month: "long" });
+
+        if (loading) {
+          return (
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+              <LoaderIcon />
+            </div>
+          );
+        }
+
+        return (
+          <div className="min-h-screen bg-gray-50">
+            <div className="max-w-7xl mx-auto px-4 py-8">
+              <button
+                onClick={() => navigate("/")}
+                className="mb-4 px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
+              >
+                ← Back to Invoices
+              </button>
+
+              <h1 className="text-4xl font-bold text-gray-900 mb-2">
+                📅 {monthName} {year}
+              </h1>
+              <p className="text-gray-600 mb-8">
+                {invoices.length} invoice{invoices.length !== 1 ? "s" : ""}{" "}
+                found
+              </p>
+
+              {error && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-800">{error}</p>
+                </div>
+              )}
+
+              {invoices.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {invoices.map((invoice) => (
+                    <InvoiceCard
+                      key={invoice.id}
+                      invoice={invoice}
+                      onPreview={setSelectedInvoice}
+                      odooUrl={connectionSettings.url}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {invoices.length === 0 && !error && (
+                <div className="text-center py-12 text-gray-500">
+                  No invoices found for {monthName} {year}.
+                </div>
+              )}
+            </div>
+
+            {selectedInvoice && (
+              <PDFSidebar
+                invoice={selectedInvoice}
+                onClose={() => setSelectedInvoice(null)}
+                odooUrl={connectionSettings.url}
+                sessionId={sessionId}
+              />
+            )}
+          </div>
+        );
+      }
+
+      function App() {
+        const [invoices, setInvoices] = useState([]);
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState(null);
+        const [selectedInvoice, setSelectedInvoice] = useState(null);
+        const [showConnectionSettings, setShowConnectionSettings] =
+          useState(false);
+
+        // Load connection settings from localStorage
+        const loadConnectionSettings = () => {
+          try {
+            const stored = localStorage.getItem("odoo_connection");
+            if (stored) {
+              return JSON.parse(stored);
+            }
+          } catch (err) {
+            console.error("Failed to load connection settings:", err);
+          }
+          return { url: "", db: "", username: "", password: "" };
+        };
+
+        const [connectionSettings, setConnectionSettings] = useState(
+          loadConnectionSettings
+        );
+        const [filters, setFilters] = useState({
+          type: "all",
+          limit: "20",
+          since: "",
+          until: "",
+        });
+        const [sessionId, setSessionId] = useState(null);
+
+        // Authenticate with Odoo to get session_id
+        const authenticateOdoo = async () => {
+          if (!isConnectionConfigured()) return null;
+
+          try {
+            const params = new URLSearchParams({
+              url: connectionSettings.url,
+              db: connectionSettings.db,
+              username: connectionSettings.username,
+              password: connectionSettings.password,
+            });
+
+            const response = await fetch(
+              `/api/odoo/authenticate?${params.toString()}`
+            );
+            const data = await response.json();
+
+            if (!response.ok) {
+              console.error("Authentication failed:", data.error);
+              return null;
+            }
+
+            setSessionId(data.session_id);
+            return data.session_id;
+          } catch (err) {
+            console.error("Authentication error:", err);
+            return null;
+          }
+        };
+
+        // Authenticate when opening invoice for PDF preview
+        useEffect(() => {
+          if (selectedInvoice && !sessionId) {
+            authenticateOdoo();
+          }
+        }, [selectedInvoice]);
+
+        // Check if connection settings are configured
+        const isConnectionConfigured = () => {
+          return (
+            connectionSettings.url &&
+            connectionSettings.db &&
+            connectionSettings.username &&
+            connectionSettings.password
+          );
+        };
+
+        // Show connection panel if not configured
+        useEffect(() => {
+          if (!isConnectionConfigured()) {
+            setShowConnectionSettings(true);
+          }
+        }, []);
+
+        const fetchInvoices = async () => {
+          setLoading(true);
+          setError(null);
+
+          const params = new URLSearchParams();
+
+          // Add connection settings
+          Object.entries(connectionSettings).forEach(([key, value]) => {
+            if (value) params.append(key, value);
+          });
+
+          // Add filters
+          Object.entries(filters).forEach(([key, value]) => {
+            if (value) params.append(key, value);
+          });
+
+          try {
+            const response = await fetch(
+              `/api/odoo/invoices?${params.toString()}`
+            );
+            const data = await response.json();
+
+            if (!response.ok) {
+              throw new Error(data.error || "Failed to fetch invoices");
+            }
+
+            setInvoices(data.invoices);
+          } catch (err) {
+            console.error(err);
+            let msg = err.message;
+            if (err.errors.amount) {
+              msg = `${err.errors.amount} (balance: €${err.errors.balance})`;
+            }
+            setError(msg);
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const handleFilterChange = (e) => {
+          setFilters({ ...filters, [e.target.name]: e.target.value });
+        };
+
+        const handleConnectionChange = (e) => {
+          setConnectionSettings({
+            ...connectionSettings,
+            [e.target.name]: e.target.value,
+          });
+        };
+
+        const saveConnectionSettings = () => {
+          try {
+            localStorage.setItem(
+              "odoo_connection",
+              JSON.stringify(connectionSettings)
+            );
+            setShowConnectionSettings(false);
+            setError(null);
+          } catch (err) {
+            setError("Failed to save connection settings");
+          }
+        };
+
+        const clearConnectionSettings = () => {
+          try {
+            localStorage.removeItem("odoo_connection");
+            setConnectionSettings({
+              url: "",
+              db: "",
+              username: "",
+              password: "",
+            });
+            setShowConnectionSettings(true);
+          } catch (err) {
+            setError("Failed to clear connection settings");
+          }
+        };
+
+        return (
+          <div className="min-h-screen bg-gray-50">
+            <div className="max-w-7xl mx-auto px-4 py-8">
+              <div className="mb-8 flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <h1 className="text-4xl font-bold text-gray-900">
+                    📋 Odoo Invoices
+                  </h1>
+                  <button
+                    onClick={() =>
+                      window.history.pushState({}, "", "/monerium") ||
+                      window.dispatchEvent(new PopStateEvent("popstate"))
+                    }
+                    className="px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition-colors text-sm font-medium"
+                  >
+                    💳 Monerium
+                  </button>
+                </div>
+                {isConnectionConfigured() && (
+                  <div className="flex items-center space-x-3">
+                    <div className="flex items-center space-x-2 px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
+                      <svg
+                        className="w-5 h-5 text-green-600"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      <span className="text-sm font-medium text-green-800">
+                        Connected to {connectionSettings.db}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() =>
+                        setShowConnectionSettings(!showConnectionSettings)
+                      }
+                      className="flex items-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+                    >
+                      <SettingsIcon />
+                      <span>
+                        {showConnectionSettings ? "Hide" : "Edit"} Settings
+                      </span>
+                    </button>
+                    <button
+                      onClick={clearConnectionSettings}
+                      className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg transition-colors"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {error && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-800">{error}</p>
+                </div>
+              )}
+
+              {(!isConnectionConfigured() || showConnectionSettings) && (
+                <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                  <h2 className="text-lg font-semibold mb-4">
+                    🔐 Odoo Connection Settings
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <input
+                      type="text"
+                      name="url"
+                      placeholder="Odoo URL (e.g., https://yourcompany.odoo.com)"
+                      value={connectionSettings.url}
+                      onChange={handleConnectionChange}
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <input
+                      type="text"
+                      name="db"
+                      placeholder="Database name"
+                      value={connectionSettings.db}
+                      onChange={handleConnectionChange}
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <input
+                      type="text"
+                      name="username"
+                      placeholder="Username"
+                      value={connectionSettings.username}
+                      onChange={handleConnectionChange}
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <input
+                      type="password"
+                      name="password"
+                      placeholder="Password"
+                      value={connectionSettings.password}
+                      onChange={handleConnectionChange}
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <button
+                    onClick={saveConnectionSettings}
+                    className="w-full md:w-auto px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors"
+                  >
+                    Save Connection
+                  </button>
+                </div>
+              )}
+
+              {isConnectionConfigured() && (
+                <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                  <h2 className="text-lg font-semibold mb-4">🔍 Filters</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                    <select
+                      name="type"
+                      value={filters.type}
+                      onChange={handleFilterChange}
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="all">All Invoices</option>
+                      <option value="incoming">Incoming (Supplier)</option>
+                      <option value="outgoing">Outgoing (Customer)</option>
+                    </select>
+                    <input
+                      type="number"
+                      name="limit"
+                      placeholder="Limit"
+                      value={filters.limit}
+                      onChange={handleFilterChange}
+                      min="1"
+                      max="100"
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <input
+                      type="date"
+                      name="since"
+                      placeholder="Since date"
+                      value={filters.since}
+                      onChange={handleFilterChange}
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <input
+                      type="date"
+                      name="until"
+                      placeholder="Until date"
+                      value={filters.until}
+                      onChange={handleFilterChange}
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <button
+                    onClick={fetchInvoices}
+                    disabled={loading}
+                    className="w-full md:w-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold rounded-lg transition-colors"
+                  >
+                    {loading ? "Loading..." : "Fetch Invoices"}
+                  </button>
+                </div>
+              )}
+
+              {loading && (
+                <div className="flex justify-center items-center py-12">
+                  <LoaderIcon />
+                </div>
+              )}
+
+              {!loading && invoices.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {invoices.map((invoice) => (
+                    <InvoiceCard
+                      key={invoice.id}
+                      invoice={invoice}
+                      onPreview={setSelectedInvoice}
+                      odooUrl={connectionSettings.url}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {!loading && invoices.length === 0 && (
+                <div className="text-center py-12 text-gray-500">
+                  {isConnectionConfigured()
+                    ? 'No invoices found. Try adjusting your filters or click "Fetch Invoices".'
+                    : "Please configure your Odoo connection to get started."}
+                </div>
+              )}
+            </div>
+
+            {selectedInvoice && (
+              <PDFSidebar
+                invoice={selectedInvoice}
+                onClose={() => setSelectedInvoice(null)}
+                odooUrl={connectionSettings.url}
+                sessionId={sessionId}
+              />
+            )}
+          </div>
+        );
+      }
+
+      function RootApp() {
+        // Load connection settings from localStorage
+        const loadConnectionSettings = () => {
+          try {
+            const stored = localStorage.getItem("odoo_connection");
+            if (stored) {
+              return JSON.parse(stored);
+            }
+          } catch (err) {
+            console.error("Failed to load connection settings:", err);
+          }
+          return { url: "", db: "", username: "", password: "" };
+        };
+
+        const [connectionSettings] = useState(loadConnectionSettings);
+        const [sessionId] = useState(null);
+
+        return (
+          <Router>
+            {({ currentPath, navigate }) => {
+              // Match /monerium route
+              if (currentPath === "/monerium") {
+                return <MoneriumView navigate={navigate} />;
+              }
+
+              // Match /invoices/:id pattern
+              const invoiceDetailsMatch =
+                currentPath.match(/^\/invoices\/(\d+)$/);
+              if (invoiceDetailsMatch) {
+                const invoiceId = invoiceDetailsMatch[1];
+                return (
+                  <InvoiceDetailsView
+                    invoiceId={invoiceId}
+                    connectionSettings={connectionSettings}
+                    sessionId={sessionId}
+                    navigate={navigate}
+                  />
+                );
+              }
+
+              // Match /:year/:month pattern
+              const monthlyMatch = currentPath.match(/^\/(\d{4})\/(\d{1,2})$/);
+              if (monthlyMatch) {
+                const [, year, month] = monthlyMatch;
+                return (
+                  <MonthlyInvoicesView
+                    year={year}
+                    month={month}
+                    connectionSettings={connectionSettings}
+                    sessionId={sessionId}
+                    navigate={navigate}
+                  />
+                );
+              }
+
+              // Default: show main app
+              return <App />;
+            }}
+          </Router>
+        );
+      }
+
+      ReactDOM.render(<RootApp />, document.getElementById("root"));
+    </script>
+  </body>
+</html>
