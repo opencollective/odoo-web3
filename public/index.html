@@ -187,6 +187,7 @@
         const [paySuccess, setPaySuccess] = useState(null);
         const [accessToken, setAccessToken] = useState("");
         const [environment, setEnvironment] = useState("sandbox");
+        const [accountAddress, setAccountAddress] = useState("");
 
         useEffect(() => {
           setMemo(invoice.ref || "");
@@ -205,11 +206,27 @@
               if (data.environment) {
                 setEnvironment(data.environment);
               }
+              if (data.accountAddress) {
+                setAccountAddress(data.accountAddress);
+              }
             }
           } catch (err) {
             console.error("Failed to load Monerium connection:", err);
           }
         }, []);
+
+        useEffect(() => {
+          if (connected && accessToken) {
+            localStorage.setItem(
+              "monerium_connection",
+              JSON.stringify({
+                accessToken,
+                environment: currentEnvironment,
+                accountAddress,
+              })
+            );
+          }
+        }, [connected, accessToken, accountAddress, currentEnvironment]);
 
         const isIncoming =
           invoice.move_type === "in_invoice" ||
@@ -227,7 +244,9 @@
         };
 
         const canPay =
-          invoice.payment_state !== "paid" && invoice.bank_account_number;
+          invoice.payment_state !== "paid" &&
+          invoice.bank_account_number &&
+          accountAddress;
 
         const handlePay = async () => {
           if (!canPay) return;
@@ -252,6 +271,7 @@
                 memo: memo,
                 environment: environment,
                 accessToken: accessToken,
+                accountAddress: accountAddress,
                 companyName: invoice.partner_name || "Unknown",
                 firstName: "",
                 lastName: "",
@@ -458,9 +478,9 @@
                     </button>
                   </>
                 )}
-                {!accessToken && !paySuccess && (
+                {(!accessToken || !accountAddress) && !paySuccess && (
                   <p className="text-xs text-gray-500">
-                    Connect to Monerium first from the{" "}
+                    Connect to Monerium and set your payer account on the{" "}
                     <a
                       href="/monerium"
                       className="text-blue-600 hover:underline"
@@ -1025,6 +1045,7 @@
           memo: "",
           environment: "sandbox",
           recipientType: "company",
+          accountAddress: "",
           companyName: "",
           firstName: "",
           lastName: "",
@@ -1035,6 +1056,8 @@
         const [loading, setLoading] = useState(false);
         const [success, setSuccess] = useState(null);
         const [error, setError] = useState(null);
+        const [accountAddress, setAccountAddress] = useState("");
+        const currentEnvironment = formData.environment;
 
         // Helper functions for OAuth PKCE flow
         const generateRandomString = (length) => {
@@ -1097,9 +1120,15 @@
 
           // Handle OAuth callback
           if (code && storedData) {
-            const { codeVerifier, clientId, environment } =
+            const { codeVerifier, clientId, environment, accountAddress } =
               JSON.parse(storedData);
-            exchangeCodeForToken(code, codeVerifier, clientId, environment);
+            exchangeCodeForToken(
+              code,
+              codeVerifier,
+              clientId,
+              environment,
+              accountAddress
+            );
             window.history.replaceState({}, document.title, "/monerium");
             return;
           }
@@ -1117,6 +1146,9 @@
                   environment: data.environment || "sandbox",
                 }));
               }
+              if (data.accountAddress) {
+                setAccountAddress(data.accountAddress);
+              }
             } catch (err) {
               console.error("Failed to load token:", err);
             }
@@ -1127,7 +1159,8 @@
           code,
           codeVerifier,
           clientId,
-          environment
+          environment,
+          storedAccountAddress
         ) => {
           try {
             setLoading(true);
@@ -1160,16 +1193,26 @@
             const tokenData = await tokenResponse.json();
             const token = tokenData.access_token;
 
+            const finalAccountAddress =
+              storedAccountAddress || accountAddress || "";
+
             // Save to localStorage
             localStorage.setItem(
               "monerium_connection",
-              JSON.stringify({ accessToken: token, environment })
+              JSON.stringify({
+                accessToken: token,
+                environment,
+                accountAddress: finalAccountAddress,
+              })
             );
             localStorage.removeItem("monerium_oauth");
 
             setAccessToken(token);
             setConnected(true);
             setFormData((prev) => ({ ...prev, environment }));
+            if (finalAccountAddress) {
+              setAccountAddress(finalAccountAddress);
+            }
             setSuccess("Connected to Monerium successfully!");
           } catch (err) {
             console.error("Token exchange failed:", err);
@@ -1180,9 +1223,14 @@
           }
         };
 
-        const handleConnect = async (clientId, environment) => {
+        const handleConnect = async (clientId, environment, accountAddr) => {
           if (!clientId.trim()) {
             setError("Please enter a client ID");
+            return;
+          }
+
+          if (!accountAddr || !accountAddr.trim()) {
+            setError("Please provide the Safe or account address to use");
             return;
           }
 
@@ -1190,11 +1238,18 @@
             setLoading(true);
             setError(null);
 
+            setAccountAddress(accountAddr.trim());
+
             const { codeVerifier, codeChallenge } = await generatePKCE();
 
             localStorage.setItem(
               "monerium_oauth",
-              JSON.stringify({ codeVerifier, clientId, environment })
+              JSON.stringify({
+                codeVerifier,
+                clientId,
+                environment,
+                accountAddress: accountAddr.trim(),
+              })
             );
 
             const baseUrl =
@@ -1224,6 +1279,7 @@
           localStorage.removeItem("monerium_connection");
           localStorage.removeItem("monerium_oauth");
           setAccessToken("");
+          setAccountAddress("");
           setConnected(false);
           setSuccess(null);
           setError(null);
@@ -1242,6 +1298,12 @@
               throw new Error("Please set your access token first");
             }
 
+            if (!accountAddress) {
+              throw new Error(
+                "Please provide the account address in the connection settings"
+              );
+            }
+
             if (formData.recipientType === "company") {
               if (!formData.companyName.trim()) {
                 throw new Error("Company name is required");
@@ -1256,23 +1318,15 @@
               amount: formData.amount,
               iban: formData.iban,
               memo: formData.memo,
+              companyName: formData.companyName,
+              firstName: formData.firstName,
+              lastName: formData.lastName,
               environment: formData.environment,
               accessToken: accessToken,
-              firstName:
-                formData.recipientType === "individual"
-                  ? formData.firstName.trim()
-                  : "",
-              lastName:
-                formData.recipientType === "individual"
-                  ? formData.lastName.trim()
-                  : "",
-              companyName:
-                formData.recipientType === "company"
-                  ? formData.companyName.trim()
-                  : "",
+              accountAddress: accountAddress,
             };
 
-            console.log(">>> Placing order", accessToken);
+            console.log(">>> Placing order", payload);
             // Call backend API to place order
             const response = await fetch("/api/monerium/order", {
               method: "POST",
@@ -1401,8 +1455,16 @@
                     onSubmit={(e) => {
                       e.preventDefault();
                       const formData = new FormData(e.target);
-                      const environment = formData.get("environment");
-                      handleConnect(formData.get("clientId"), environment);
+                      const environment = (
+                        formData.get("environment") || "sandbox"
+                      ).toString();
+                      const accountAddr = (
+                        formData.get("accountAddress") || ""
+                      ).toString();
+                      const clientId = (
+                        formData.get("clientId") || ""
+                      ).toString();
+                      handleConnect(clientId, environment, accountAddr);
                     }}
                     className="space-y-6"
                   >
@@ -1429,6 +1491,22 @@
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                       />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Account Address (Safe or EOA)
+                      </label>
+                      <input
+                        type="text"
+                        name="accountAddress"
+                        placeholder="0x..."
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        This address will be used as the payer account for
+                        Monerium payments.
+                      </p>
                     </div>
                     <button
                       type="submit"
@@ -1581,6 +1659,24 @@
                       />
                       <p className="text-xs text-gray-500 mt-1">
                         {formData.memo.length}/140 characters
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Account Address
+                      </label>
+                      <input
+                        type="text"
+                        value={accountAddress}
+                        onChange={(e) => setAccountAddress(e.target.value)}
+                        placeholder="0x..."
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        This address will be used for Monerium payments. Add
+                        your Safe address here if you want to pay from a Safe.
                       </p>
                     </div>
 

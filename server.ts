@@ -1,6 +1,6 @@
 import { OdooClient, InvoiceDirection } from "./src/lib/odoo.ts";
-import { privateKeyToAccount } from "npm:viem@2.x/accounts";
-import { hashMessage } from "npm:viem@2.x";
+import { privateKeyToAccount } from "viem/accounts";
+import { signMessage } from "./src/lib/safe.ts";
 
 const PORT = 8000;
 
@@ -407,13 +407,14 @@ async function handleMoneriumOrderPlacement(req: Request): Promise<Response> {
       memo,
       environment,
       accessToken,
+      accountAddress,
     } = body;
 
-    if (!amount || !iban || !environment || !accessToken) {
+    if (!amount || !iban || !environment || !accessToken || !accountAddress) {
       return new Response(
         JSON.stringify({
           error:
-            "Missing required fields: amount, iban, environment, accessToken",
+            "Missing required fields: amount, iban, environment, accessToken, accountAddress",
         }),
         { status: 400, headers: corsHeaders }
       );
@@ -455,15 +456,17 @@ async function handleMoneriumOrderPlacement(req: Request): Promise<Response> {
     console.log("🔑 Signing address:", account.address);
 
     // Build order payload according to Monerium API spec
+    const chainName = environment === "production" ? "gnosis" : "chiado";
+
     const orderPayload = {
       amount: amount.toString(),
       currency: "eur",
-      message: `Send EUR ${amount} to ${normalizeIban(iban)} at ${new Date()
+      message: `Send EUR ${amount} to ${iban} at ${new Date()
         .toISOString()
         .replace(/\.\d{3}Z$/, "Z")}`,
       signature: "0x", // Placeholder, will be replaced
-      address: account.address,
-      chain: "chiado",
+      address: accountAddress,
+      chain: chainName,
       counterpart: {
         identifier: {
           standard: "iban",
@@ -477,7 +480,7 @@ async function handleMoneriumOrderPlacement(req: Request): Promise<Response> {
 
     if (companyName) {
       orderPayload.counterpart.details.companyName = companyName;
-    } else {
+    } else if (firstName || lastName) {
       orderPayload.counterpart.details.firstName = firstName;
       orderPayload.counterpart.details.lastName = lastName;
     }
@@ -487,11 +490,26 @@ async function handleMoneriumOrderPlacement(req: Request): Promise<Response> {
     const messageToSign = orderPayload.message;
     console.log("📝 Message to sign:", messageToSign);
 
-    // Sign the message
-    const signature = await account.signMessage({
-      message: messageToSign,
-    });
-    console.log("✍️ Signature:", signature);
+    const normalizedAccountAddress = accountAddress.toLowerCase();
+    const signerAddress = account.address.toLowerCase();
+
+    let signature: string;
+
+    if (normalizedAccountAddress === signerAddress) {
+      signature = await account.signMessage({
+        message: messageToSign,
+      });
+      console.log("✍️ Signature using signer account:", signature);
+    } else {
+      console.log(
+        "🔄 Using Safe SDK for signing with address:",
+        accountAddress
+      );
+
+      signature = await signMessage(messageToSign, accountAddress);
+
+      console.log("✍️ Signature via Safe SDK:", signature);
+    }
 
     // Update payload with real signature
     const fullPayload = {
@@ -507,7 +525,12 @@ async function handleMoneriumOrderPlacement(req: Request): Promise<Response> {
 
     console.log("🔄 Posting order to Monerium:");
     console.log("  URL:", `${baseUrl}/orders`);
-    console.log("  Access token:", accessToken);
+    console.log(
+      "  Access token:",
+      accessToken[0] +
+        (accessToken.length - 2) +
+        accessToken[accessToken.length - 1]
+    );
     console.log("  Full payload:", JSON.stringify(fullPayload, null, 2));
 
     const orderResponse = await fetch(`${baseUrl}/orders`, {
