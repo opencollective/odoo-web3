@@ -180,53 +180,133 @@
         </svg>
       );
 
-      function InvoiceCard({ invoice, onPreview, odooUrl }) {
-        const [memo, setMemo] = useState(invoice.ref || "");
+      const IncomingIcon = () => (
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 5v14m0 0l-5-5m5 5l5-5"
+          />
+        </svg>
+      );
+
+      const OutgoingIcon = () => (
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 19V5m0 0l-5 5m5-5l5 5"
+          />
+        </svg>
+      );
+
+      const handlePay = async (invoice, memo) => {
+        if (!invoice?.bank_account_number) {
+          throw new Error("This invoice does not have a bank account number.");
+        }
+
+        const storedConnection = localStorage.getItem("monerium_connection");
+
+        if (!storedConnection) {
+          throw new Error(
+            "Connect to Monerium first from the Monerium page and set your payer account."
+          );
+        }
+
+        let connection;
+        try {
+          connection = JSON.parse(storedConnection);
+        } catch (err) {
+          console.error("Failed to parse Monerium connection:", err);
+          throw new Error(
+            "Stored Monerium connection looks invalid. Please reconnect from the Monerium page."
+          );
+        }
+
+        const {
+          accessToken,
+          environment = "sandbox",
+          accountAddress,
+        } = connection || {};
+
+        if (!accessToken) {
+          throw new Error(
+            "Missing Monerium access token. Reconnect from the Monerium page."
+          );
+        }
+
+        if (!accountAddress) {
+          throw new Error(
+            "Missing Monerium payer account. Set it from the Monerium page."
+          );
+        }
+
+        const response = await fetch("/api/monerium/order", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            amount: invoice.amount_total,
+            iban: invoice.bank_account_number,
+            memo,
+            environment,
+            accessToken,
+            accountAddress,
+            companyName: invoice.partner_name || "Unknown",
+            firstName: "",
+            lastName: "",
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          let msg = data.error || data.message || "Failed to place order";
+          if (data.errors && data.errors.amount) {
+            msg = `${data.errors.amount} (balance: €${data.errors.balance})`;
+          }
+          throw new Error(msg);
+        }
+
+        return data.id
+          ? `Payment order ${data.id} created`
+          : "Payment order created";
+      };
+
+      function InvoiceCard({ invoice, onPreview, odooUrl, onPay }) {
+        const firstLineItem =
+          invoice.invoice_line_ids &&
+          invoice.invoice_line_ids.length > 0 &&
+          invoice.invoice_line_ids[0];
+
+        const [expanded, setExpanded] = useState(false);
+        const [memo, setMemo] = useState(
+          invoice.ref || invoice.name || firstLineItem?.name || ""
+        );
         const [paying, setPaying] = useState(false);
         const [payError, setPayError] = useState(null);
         const [paySuccess, setPaySuccess] = useState(null);
-        const [accessToken, setAccessToken] = useState("");
-        const [environment, setEnvironment] = useState("sandbox");
-        const [accountAddress, setAccountAddress] = useState("");
+        const [showPayModal, setShowPayModal] = useState(false);
 
         useEffect(() => {
-          setMemo(invoice.ref || "");
+          setExpanded(false);
+          setMemo(invoice.ref || firstLineItem?.name || "");
           setPayError(null);
           setPaySuccess(null);
-        }, [invoice.id, invoice.ref]);
-
-        useEffect(() => {
-          try {
-            const stored = localStorage.getItem("monerium_connection");
-            if (stored) {
-              const data = JSON.parse(stored);
-              if (data.accessToken) {
-                setAccessToken(data.accessToken);
-              }
-              if (data.environment) {
-                setEnvironment(data.environment);
-              }
-              if (data.accountAddress) {
-                setAccountAddress(data.accountAddress);
-              }
-            }
-          } catch (err) {
-            console.error("Failed to load Monerium connection:", err);
-          }
-        }, []);
-
-        useEffect(() => {
-          if (connected && accessToken) {
-            localStorage.setItem(
-              "monerium_connection",
-              JSON.stringify({
-                accessToken,
-                environment: currentEnvironment,
-                accountAddress,
-              })
-            );
-          }
-        }, [connected, accessToken, accountAddress, currentEnvironment]);
+        }, [invoice.id, invoice.ref, firstLineItem?.name]);
 
         const isIncoming =
           invoice.move_type === "in_invoice" ||
@@ -236,6 +316,10 @@
           posted: "bg-green-100 text-green-800",
           cancel: "bg-red-100 text-red-800",
         }[invoice.state];
+        const paymentStateColor =
+          invoice.payment_state === "paid"
+            ? "bg-green-100 text-green-800"
+            : null;
 
         const openInOdoo = (e) => {
           e.stopPropagation();
@@ -244,55 +328,35 @@
         };
 
         const canPay =
+          typeof onPay === "function" &&
           invoice.payment_state !== "paid" &&
-          invoice.bank_account_number &&
-          accountAddress;
+          Boolean(invoice.bank_account_number);
 
-        const handlePay = async () => {
-          if (!canPay) return;
-          if (!accessToken) {
-            setPayError("Connect to Monerium first from the Monerium page.");
-            return;
-          }
+        const handleOpenPayModal = (e) => {
+          if (e) e.stopPropagation();
+          if (!canPay || !onPay) return;
+          setPayError(null);
+          setShowPayModal(true);
+        };
+
+        const handleClosePayModal = () => {
+          if (paying) return;
+          setShowPayModal(false);
+          setPayError(null);
+        };
+
+        const handleConfirmPay = async (e) => {
+          if (e) e.stopPropagation();
+          if (!canPay || !onPay) return;
 
           setPaying(true);
           setPayError(null);
           setPaySuccess(null);
 
           try {
-            const response = await fetch("/api/monerium/order", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                amount: invoice.amount_total,
-                iban: invoice.bank_account_number,
-                memo: memo,
-                environment: environment,
-                accessToken: accessToken,
-                accountAddress: accountAddress,
-                companyName: invoice.partner_name || "Unknown",
-                firstName: "",
-                lastName: "",
-              }),
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-              let msg = data.error || data.message || "Failed to place order";
-              if (data.errors && data.errors.amount) {
-                msg = `${data.errors.amount} (balance: €${data.errors.balance})`;
-              }
-              throw new Error(msg);
-            }
-
-            setPaySuccess(
-              data.id
-                ? `Payment order ${data.id} created`
-                : "Payment order created"
-            );
+            const message = await onPay(invoice, memo);
+            setPaySuccess(message);
+            setShowPayModal(false);
           } catch (err) {
             console.error("❌ Payment failed:", err.message || err);
             setPayError(err.message || "Failed to initiate payment");
@@ -302,9 +366,13 @@
         };
 
         return (
-          <div className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-shadow">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center space-x-3">
+          <div className="bg-white border border-gray-200 rounded-lg hover:shadow transition-shadow">
+            <button
+              type="button"
+              onClick={() => setExpanded((prev) => !prev)}
+              className="w-full flex items-center justify-between px-4 py-4 text-left gap-4"
+            >
+              <div className="flex items-center gap-4 min-w-0 flex-1">
                 <div
                   className={`p-2 rounded-lg ${
                     isIncoming
@@ -312,145 +380,271 @@
                       : "bg-purple-100 text-purple-600"
                   }`}
                 >
-                  <FileIcon />
+                  {isIncoming ? <IncomingIcon /> : <OutgoingIcon />}
                 </div>
-                <div className="flex-1">
-                  <div className="flex items-center space-x-2">
-                    <h3 className="font-semibold text-lg text-gray-900">
-                      {invoice.name}
+                <div className="flex flex-col gap-2 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-semibold text-base text-gray-900 truncate max-w-xs md:max-w-sm">
+                      {invoice.partner_name}
                     </h3>
-                    {odooUrl && (
-                      <button
-                        onClick={openInOdoo}
-                        className="text-gray-400 hover:text-purple-600 transition-colors"
-                        title="Open in Odoo"
+                    {invoice.state !== "posted" && (
+                      <span
+                        className={`px-2 py-0.5 rounded text-xs font-medium ${statusColor}`}
                       >
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                          />
-                        </svg>
-                      </button>
+                        {invoice.state}
+                      </span>
+                    )}
+                    {paymentStateColor && (
+                      <span
+                        className={`px-2 py-0.5 rounded text-xs font-medium ${paymentStateColor}`}
+                      >
+                        Paid
+                      </span>
                     )}
                   </div>
-                  <p className="text-sm text-gray-500">
-                    {isIncoming ? "📥 Incoming" : "📤 Outgoing"}
-                  </p>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
+                    <span>{invoice.date || "—"}</span>
+                    {invoice.name && (
+                      <span className="truncate max-w-[180px]">
+                        {invoice.name}
+                      </span>
+                    )}
+                    {invoice.ref && (
+                      <span className="truncate max-w-[160px]">
+                        {invoice.ref}
+                      </span>
+                    )}
+                    {firstLineItem && (
+                      <span className="truncate max-w-[220px] text-gray-500">
+                        {firstLineItem.name}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-medium ${statusColor}`}
-              >
-                {invoice.state}
-              </span>
-            </div>
-
-            <div className="space-y-2 mb-4">
-              {invoice.ref && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Reference:</span>
-                  <span className="font-medium text-gray-900">
-                    {invoice.ref}
-                  </span>
-                </div>
-              )}
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Date:</span>
-                <span className="font-medium text-gray-900">
-                  {invoice.date}
-                </span>
-              </div>
-              {invoice.invoice_date_due && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Due Date:</span>
-                  <span className="font-medium text-gray-900">
-                    {invoice.invoice_date_due}
-                  </span>
-                </div>
-              )}
-              {invoice.payment_state && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Payment:</span>
-                  <span
-                    className={`px-2 py-0.5 rounded text-xs font-medium ${
-                      invoice.payment_state === "paid"
-                        ? "bg-green-100 text-green-800"
-                        : invoice.payment_state === "partial"
-                        ? "bg-yellow-100 text-yellow-800"
-                        : invoice.payment_state === "not_paid"
-                        ? "bg-red-100 text-red-800"
-                        : "bg-gray-100 text-gray-800"
-                    }`}
-                  >
-                    {invoice.payment_state.replace("_", " ")}
-                  </span>
-                </div>
-              )}
-              {invoice.partner_name && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Partner:</span>
-                  <span className="font-medium text-gray-900">
-                    {invoice.partner_name}
-                  </span>
-                </div>
-              )}
-              {invoice.bank_account_number && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Bank Account:</span>
-                  <span className="font-mono text-xs text-gray-700">
-                    {invoice.bank_account_number}
-                  </span>
-                </div>
-              )}
-
-              {invoice.invoice_line_ids &&
-                invoice.invoice_line_ids.length > 0 && (
-                  <div className="pt-2 border-t">
-                    <div className="text-xs text-gray-500 mb-2">
-                      Line Items:
+              <div className="flex items-center gap-4">
+                <div>
+                  {canPay && (
+                    <div className="space-y-2">
+                      {paySuccess && (
+                        <div className="text-xs text-green-600 bg-green-50 border border-green-100 rounded px-3 py-2">
+                          {paySuccess}
+                        </div>
+                      )}
+                      <button
+                        onClick={handleOpenPayModal}
+                        className="inline-flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors"
+                      >
+                        <span>Pay</span>
+                      </button>
                     </div>
-                    <div className="space-y-1 max-h-32 overflow-y-auto">
-                      {invoice.invoice_line_ids.map((line) => (
+                  )}
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className="font-semibold text-lg text-gray-900">
+                    €{invoice.amount_total.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-1 text-blue-600">
+                  <span className="text-sm">
+                    {expanded ? "Hide details" : "View details"}
+                  </span>
+                  <svg
+                    className={`w-4 h-4 transform transition-transform ${
+                      expanded ? "rotate-180" : ""
+                    }`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                </div>
+              </div>
+            </button>
+
+            {expanded && (
+              <div className="border-t border-gray-200 px-4 py-4 space-y-4 text-sm text-gray-700">
+                <div className="flex flex-wrap gap-6">
+                  <div>
+                    <span className="block text-gray-500 text-xs uppercase tracking-wide">
+                      Invoice Type
+                    </span>
+                    <span className="font-medium text-gray-900">
+                      {isIncoming ? "Incoming (Vendor)" : "Outgoing (Customer)"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-gray-500 text-xs uppercase tracking-wide">
+                      Date
+                    </span>
+                    <span className="font-medium text-gray-900">
+                      {invoice.date || "—"}
+                    </span>
+                  </div>
+                  {invoice.invoice_date_due && (
+                    <div>
+                      <span className="block text-gray-500 text-xs uppercase tracking-wide">
+                        Due Date
+                      </span>
+                      <span className="font-medium text-gray-900">
+                        {invoice.invoice_date_due}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {invoice.invoice_line_ids &&
+                  invoice.invoice_line_ids.length > 0 && (
+                    <div>
+                      <span className="block text-gray-500 text-xs uppercase tracking-wide mb-2">
+                        Line Items
+                      </span>
+                      <div className="space-y-1 max-h-40 overflow-y-auto pr-2">
+                        {invoice.invoice_line_ids.map((line) => (
+                          <div
+                            key={line.id}
+                            className="flex justify-between text-xs bg-gray-50 rounded px-2 py-1"
+                          >
+                            <span className="text-gray-700 truncate flex-1 mr-2">
+                              {line.name}
+                            </span>
+                            <span className="font-medium text-gray-900 whitespace-nowrap">
+                              €{line.price_total.toFixed(2)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                {invoice.messages && invoice.messages.length > 0 && (
+                  <div>
+                    <span className="block text-gray-500 text-xs uppercase tracking-wide mb-2">
+                      Messages ({invoice.messages.length})
+                    </span>
+                    <div className="space-y-3">
+                      {invoice.messages.slice(0, 3).map((message) => (
                         <div
-                          key={line.id}
-                          className="flex justify-between text-xs"
+                          key={message.id}
+                          className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm"
                         >
-                          <span className="text-gray-700 truncate flex-1 mr-2">
-                            {line.name}
-                          </span>
-                          <span className="font-medium text-gray-900 whitespace-nowrap">
-                            €{line.price_total.toFixed(2)}
-                          </span>
+                          <div className="flex items-start justify-between mb-1">
+                            <p className="text-sm font-semibold text-gray-900">
+                              {Array.isArray(message.author_id)
+                                ? message.author_id[1]
+                                : "System"}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {new Date(message.date).toLocaleString()}
+                            </p>
+                          </div>
+                          <div
+                            className="text-gray-700 text-xs leading-relaxed"
+                            dangerouslySetInnerHTML={{ __html: message.body }}
+                          />
                         </div>
                       ))}
+                      {invoice.messages.length > 3 && (
+                        <p className="text-xs text-gray-500">
+                          Showing first 3 messages. View more in Odoo.
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
 
-              <div className="flex justify-between text-sm pt-2 border-t">
-                <span className="text-gray-500">Total Amount:</span>
-                <span className="font-bold text-lg text-gray-900">
-                  €{invoice.amount_total.toFixed(2)}
-                </span>
+                <div className="flex flex-wrap gap-3 pt-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.history.pushState(
+                        {},
+                        "",
+                        `/invoices/${invoice.id}`
+                      );
+                      window.dispatchEvent(new PopStateEvent("popstate"));
+                    }}
+                    className="inline-flex items-center space-x-2 bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg transition-colors"
+                  >
+                    <span>View invoice</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPreview(invoice);
+                    }}
+                    className="inline-flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    <EyeIcon />
+                    <span>Preview PDF</span>
+                  </button>
+                  {odooUrl && (
+                    <button
+                      onClick={(e) => {
+                        openInOdoo(e);
+                      }}
+                      className="inline-flex items-center space-x-1 text-blue-600 hover:text-blue-700 px-3 py-2 rounded-lg transition-colors border border-blue-100"
+                      title="Open in Odoo"
+                    >
+                      <ExternalLinkIcon />
+                      <span>Open in Odoo</span>
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
-            {canPay && (
-              <div className="mt-4 space-y-3">
-                {paySuccess ? (
-                  <div className="text-xs text-green-600 bg-green-50 border border-green-100 rounded px-3 py-2">
-                    {paySuccess}
-                  </div>
-                ) : (
-                  <>
+            {showPayModal && (
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 px-4"
+                onClick={handleClosePayModal}
+              >
+                <div
+                  className="relative w-full max-w-md bg-white rounded-lg shadow-xl p-6"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={handleClosePayModal}
+                    className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
+                    title="Close"
+                  >
+                    <XIcon />
+                  </button>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                    Confirm Monerium Payment
+                  </h3>
+
+                  <div className="space-y-4 text-sm text-gray-700">
+                    <div>
+                      <span className="block text-gray-500 text-xs uppercase tracking-wide">
+                        Partner
+                      </span>
+                      <span className="font-medium text-gray-900">
+                        {invoice.partner_name || "—"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-gray-500 text-xs uppercase tracking-wide">
+                        Bank Account
+                      </span>
+                      <span className="font-mono text-xs text-gray-700 bg-gray-100 px-2 py-1 rounded">
+                        {invoice.bank_account_number}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-gray-500 text-xs uppercase tracking-wide">
+                        Amount
+                      </span>
+                      <span className="font-semibold text-lg text-gray-900">
+                        €{invoice.amount_total.toFixed(2)}
+                      </span>
+                    </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">
                         Memo / Reference
@@ -467,39 +661,27 @@
                         {payError}
                       </div>
                     )}
+                  </div>
+
+                  <div className="mt-6 flex items-center justify-end gap-3">
                     <button
-                      onClick={handlePay}
+                      onClick={handleClosePayModal}
+                      className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
                       disabled={paying}
-                      className="w-full flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg transition-colors"
                     >
-                      <span>
-                        {paying ? "Processing..." : "Pay with Monerium"}
-                      </span>
+                      Cancel
                     </button>
-                  </>
-                )}
-                {(!accessToken || !accountAddress) && !paySuccess && (
-                  <p className="text-xs text-gray-500">
-                    Connect to Monerium and set your payer account on the{" "}
-                    <a
-                      href="/monerium"
-                      className="text-blue-600 hover:underline"
+                    <button
+                      onClick={handleConfirmPay}
+                      disabled={paying}
+                      className="inline-flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg transition-colors"
                     >
-                      Monerium page
-                    </a>
-                    .
-                  </p>
-                )}
+                      <span>{paying ? "Processing..." : "Pay"}</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
-
-            <button
-              onClick={() => onPreview(invoice)}
-              className="mt-4 w-full flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
-            >
-              <EyeIcon />
-              <span>View PDF</span>
-            </button>
           </div>
         );
       }
@@ -603,19 +785,9 @@
                       €{invoice.amount_total.toFixed(2)}
                     </strong>
                   </span>
-                  {invoice.payment_state && (
-                    <span
-                      className={`px-2 py-1 rounded text-xs font-medium ${
-                        invoice.payment_state === "paid"
-                          ? "bg-green-100 text-green-800"
-                          : invoice.payment_state === "partial"
-                          ? "bg-yellow-100 text-yellow-800"
-                          : invoice.payment_state === "not_paid"
-                          ? "bg-red-100 text-red-800"
-                          : "bg-gray-100 text-gray-800"
-                      }`}
-                    >
-                      {invoice.payment_state.replace("_", " ")}
+                  {invoice.payment_state === "paid" && (
+                    <span className="px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
+                      Paid
                     </span>
                   )}
                 </div>
@@ -735,12 +907,9 @@
         }[invoice.state];
 
         const paymentStateColor =
-          {
-            paid: "bg-green-100 text-green-800",
-            partial: "bg-yellow-100 text-yellow-800",
-            not_paid: "bg-red-100 text-red-800",
-            in_payment: "bg-blue-100 text-blue-800",
-          }[invoice.payment_state] || "bg-gray-100 text-gray-800";
+          invoice.payment_state === "paid"
+            ? "bg-green-100 text-green-800"
+            : null;
 
         return (
           <div className="min-h-screen bg-gray-50 p-8">
@@ -768,11 +937,11 @@
                     >
                       {invoice.state}
                     </span>
-                    {invoice.payment_state && (
+                    {paymentStateColor && (
                       <span
                         className={`px-3 py-1 rounded-full text-sm font-medium ${paymentStateColor}`}
                       >
-                        {invoice.payment_state.replace("_", " ")}
+                        Paid
                       </span>
                     )}
                   </div>
@@ -1319,8 +1488,6 @@
               iban: formData.iban,
               memo: formData.memo,
               companyName: formData.companyName,
-              firstName: formData.firstName,
-              lastName: formData.lastName,
               environment: formData.environment,
               accessToken: accessToken,
               accountAddress: accountAddress,
@@ -1801,13 +1968,14 @@
               )}
 
               {invoices.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="space-y-4">
                   {invoices.map((invoice) => (
                     <InvoiceCard
                       key={invoice.id}
                       invoice={invoice}
                       onPreview={setSelectedInvoice}
                       odooUrl={connectionSettings.url}
+                      onPay={handlePay}
                     />
                   ))}
                 </div>
@@ -1996,6 +2164,12 @@
           }
         };
 
+        useEffect(() => {
+          if (isConnectionConfigured()) {
+            fetchInvoices();
+          }
+        }, [connectionSettings]);
+
         return (
           <div className="min-h-screen bg-gray-50">
             <div className="max-w-7xl mx-auto px-4 py-8">
@@ -2165,13 +2339,14 @@
               )}
 
               {!loading && invoices.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="space-y-4">
                   {invoices.map((invoice) => (
                     <InvoiceCard
                       key={invoice.id}
                       invoice={invoice}
                       onPreview={setSelectedInvoice}
                       odooUrl={connectionSettings.url}
+                      onPay={handlePay}
                     />
                   ))}
                 </div>
