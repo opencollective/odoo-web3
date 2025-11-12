@@ -47,7 +47,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-      const { useState, useEffect } = React;
+      const { useState, useEffect, useCallback } = React;
 
       // Icons (SVG)
       const FileIcon = () => (
@@ -154,6 +154,22 @@
             strokeLinejoin="round"
             strokeWidth={2}
             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+          />
+        </svg>
+      );
+
+      const FilterIcon = () => (
+        <svg
+          className="w-4 h-4"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M3 4h18M6 12h12M10 20h4"
           />
         </svg>
       );
@@ -278,12 +294,12 @@
           if (data.errors && data.errors.amount) {
             msg = `${data.errors.amount} (balance: €${data.errors.balance})`;
           }
-          throw new Error(msg);
+          const error = new Error(msg);
+          error.status = response.status;
+          throw error;
         }
 
-        return data.id
-          ? `Payment order ${data.id} created`
-          : "Payment order created";
+        return data;
       };
 
       function InvoiceCard({ invoice, onPreview, odooUrl, onPay }) {
@@ -300,12 +316,14 @@
         const [payError, setPayError] = useState(null);
         const [paySuccess, setPaySuccess] = useState(null);
         const [showPayModal, setShowPayModal] = useState(false);
+        const [needsReconnect, setNeedsReconnect] = useState(false);
 
         useEffect(() => {
           setExpanded(false);
           setMemo(invoice.ref || firstLineItem?.name || "");
           setPayError(null);
           setPaySuccess(null);
+          setNeedsReconnect(false);
         }, [invoice.id, invoice.ref, firstLineItem?.name]);
 
         const isIncoming =
@@ -316,10 +334,8 @@
           posted: "bg-green-100 text-green-800",
           cancel: "bg-red-100 text-red-800",
         }[invoice.state];
-        const paymentStateColor =
-          invoice.payment_state === "paid"
-            ? "bg-green-100 text-green-800"
-            : null;
+        const isPaid = invoice.payment_state === "paid" || Boolean(paySuccess);
+        const paymentStateColor = isPaid ? "bg-green-100 text-green-800" : null;
 
         const openInOdoo = (e) => {
           e.stopPropagation();
@@ -330,12 +346,15 @@
         const canPay =
           typeof onPay === "function" &&
           invoice.payment_state !== "paid" &&
-          Boolean(invoice.bank_account_number);
+          Boolean(invoice.bank_account_number) &&
+          invoice.state !== "draft" &&
+          !paySuccess;
 
         const handleOpenPayModal = (e) => {
           if (e) e.stopPropagation();
           if (!canPay || !onPay) return;
           setPayError(null);
+          setNeedsReconnect(false);
           setShowPayModal(true);
         };
 
@@ -343,6 +362,17 @@
           if (paying) return;
           setShowPayModal(false);
           setPayError(null);
+          setNeedsReconnect(false);
+        };
+
+        const goToMonerium = () => {
+          try {
+            localStorage.removeItem("monerium_connection");
+            localStorage.removeItem("monerium_oauth");
+          } catch (err) {
+            console.warn("Failed to clear Monerium connection:", err);
+          }
+          window.location.assign("/monerium");
         };
 
         const handleConfirmPay = async (e) => {
@@ -352,18 +382,32 @@
           setPaying(true);
           setPayError(null);
           setPaySuccess(null);
+          setNeedsReconnect(false);
 
           try {
-            const message = await onPay(invoice, memo);
-            setPaySuccess(message);
+            const result = await onPay(invoice, memo);
+            console.log("✅ Monerium payment created:", result);
+            const successMessage =
+              result && result.id
+                ? `Payment order ${result.id} created`
+                : "Payment order created";
+            setPaySuccess(successMessage);
             setShowPayModal(false);
+            setNeedsReconnect(false);
           } catch (err) {
             console.error("❌ Payment failed:", err.message || err);
             setPayError(err.message || "Failed to initiate payment");
+            if (err && typeof err === "object" && err.status === 401) {
+              setNeedsReconnect(true);
+            }
           } finally {
             setPaying(false);
           }
         };
+
+        const odooInvoiceUrl = odooUrl
+          ? `${odooUrl}/web#id=${invoice.id}&model=account.move&view_type=form`
+          : null;
 
         return (
           <div className="bg-white border border-gray-200 rounded-lg hover:shadow transition-shadow">
@@ -383,10 +427,22 @@
                   {isIncoming ? <IncomingIcon /> : <OutgoingIcon />}
                 </div>
                 <div className="flex flex-col gap-2 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-end gap-2 flex-wrap">
                     <h3 className="font-semibold text-base text-gray-900 truncate max-w-xs md:max-w-sm">
                       {invoice.partner_name}
                     </h3>
+                    {!invoice.bank_account_number &&
+                      odooInvoiceUrl &&
+                      invoice.move_type === "in_invoice" && (
+                        <a
+                          href={odooInvoiceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium text-blue-600 hover:underline mb-0.5"
+                        >
+                          Add bank account details
+                        </a>
+                      )}
                     {invoice.state !== "posted" && (
                       <span
                         className={`px-2 py-0.5 rounded text-xs font-medium ${statusColor}`}
@@ -425,18 +481,16 @@
               <div className="flex items-center gap-4">
                 <div>
                   {canPay && (
-                    <div className="space-y-2">
-                      {paySuccess && (
-                        <div className="text-xs text-green-600 bg-green-50 border border-green-100 rounded px-3 py-2">
-                          {paySuccess}
-                        </div>
-                      )}
-                      <button
-                        onClick={handleOpenPayModal}
-                        className="inline-flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors"
-                      >
-                        <span>Pay</span>
-                      </button>
+                    <button
+                      onClick={handleOpenPayModal}
+                      className="inline-flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors"
+                    >
+                      <span>Pay</span>
+                    </button>
+                  )}
+                  {!canPay && paySuccess && (
+                    <div className="text-xs text-green-600 bg-green-50 border border-green-100 rounded px-3 py-2">
+                      {paySuccess}
                     </div>
                   )}
                 </div>
@@ -660,6 +714,17 @@
                       <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded px-3 py-2">
                         {payError}
                       </div>
+                    )}
+                    {needsReconnect && (
+                      <button
+                        onClick={() => {
+                          handleClosePayModal();
+                          goToMonerium();
+                        }}
+                        className="w-full inline-flex items-center justify-center space-x-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors text-sm"
+                      >
+                        <span>Reconnect Monerium</span>
+                      </button>
                     )}
                   </div>
 
@@ -910,6 +975,9 @@
           invoice.payment_state === "paid"
             ? "bg-green-100 text-green-800"
             : null;
+        const odooInvoiceUrl =
+          connectionSettings.url &&
+          `${connectionSettings.url}/web#id=${invoice.id}&model=account.move&view_type=form`;
 
         return (
           <div className="min-h-screen bg-gray-50 p-8">
@@ -924,9 +992,21 @@
               <div className="bg-white rounded-lg shadow-lg p-8 mb-6">
                 <div className="flex items-start justify-between mb-6">
                   <div>
-                    <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                      {invoice.name}
-                    </h1>
+                    <div className="flex items-end gap-3 mb-0">
+                      <h1 className="text-3xl font-bold text-gray-900">
+                        {invoice.partner_name}
+                      </h1>
+                      {!invoice.bank_account_number && odooInvoiceUrl && (
+                        <a
+                          href={odooInvoiceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium text-blue-600 hover:underline mb-0.5"
+                        >
+                          Add bank account details
+                        </a>
+                      )}
+                    </div>
                     <p className="text-gray-600">
                       {isIncoming ? "📥 Incoming" : "📤 Outgoing"} Invoice
                     </p>
@@ -2025,11 +2105,13 @@
           loadConnectionSettings
         );
         const [filters, setFilters] = useState({
-          type: "all",
           limit: "20",
           since: "",
           until: "",
+          incoming: true,
+          outgoing: false,
         });
+        const [filtersExpanded, setFiltersExpanded] = useState(false);
         const [sessionId, setSessionId] = useState(null);
 
         // Authenticate with Odoo to get session_id
@@ -2086,21 +2168,29 @@
           }
         }, []);
 
-        const fetchInvoices = async () => {
+        const fetchInvoices = useCallback(async () => {
           setLoading(true);
           setError(null);
 
           const params = new URLSearchParams();
 
-          // Add connection settings
           Object.entries(connectionSettings).forEach(([key, value]) => {
             if (value) params.append(key, value);
           });
 
-          // Add filters
-          Object.entries(filters).forEach(([key, value]) => {
-            if (value) params.append(key, value);
-          });
+          const direction =
+            filters.incoming && filters.outgoing
+              ? "all"
+              : filters.incoming
+              ? "incoming"
+              : filters.outgoing
+              ? "outgoing"
+              : "incoming";
+
+          params.append("type", direction);
+          if (filters.limit) params.append("limit", filters.limit);
+          if (filters.since) params.append("since", filters.since);
+          if (filters.until) params.append("until", filters.until);
 
           try {
             const response = await fetch(
@@ -2123,10 +2213,31 @@
           } finally {
             setLoading(false);
           }
-        };
+        }, [connectionSettings, filters]);
 
         const handleFilterChange = (e) => {
-          setFilters({ ...filters, [e.target.name]: e.target.value });
+          const { name, value } = e.target;
+          setFilters((prev) => ({ ...prev, [name]: value }));
+        };
+
+        const toggleIncoming = () => {
+          setFilters((prev) => {
+            const next = { ...prev, incoming: !prev.incoming };
+            if (!next.incoming && !next.outgoing) {
+              next.outgoing = true;
+            }
+            return next;
+          });
+        };
+
+        const toggleOutgoing = () => {
+          setFilters((prev) => {
+            const next = { ...prev, outgoing: !prev.outgoing };
+            if (!next.incoming && !next.outgoing) {
+              next.incoming = true;
+            }
+            return next;
+          });
         };
 
         const handleConnectionChange = (e) => {
@@ -2168,7 +2279,7 @@
           if (isConnectionConfigured()) {
             fetchInvoices();
           }
-        }, [connectionSettings]);
+        }, [connectionSettings, filters, fetchInvoices]);
 
         return (
           <div className="min-h-screen bg-gray-50">
@@ -2282,53 +2393,101 @@
               )}
 
               {isConnectionConfigured() && (
-                <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-                  <h2 className="text-lg font-semibold mb-4">🔍 Filters</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                    <select
-                      name="type"
-                      value={filters.type}
-                      onChange={handleFilterChange}
-                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="all">All Invoices</option>
-                      <option value="incoming">Incoming (Supplier)</option>
-                      <option value="outgoing">Outgoing (Customer)</option>
-                    </select>
-                    <input
-                      type="number"
-                      name="limit"
-                      placeholder="Limit"
-                      value={filters.limit}
-                      onChange={handleFilterChange}
-                      min="1"
-                      max="100"
-                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                    <input
-                      type="date"
-                      name="since"
-                      placeholder="Since date"
-                      value={filters.since}
-                      onChange={handleFilterChange}
-                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                    <input
-                      type="date"
-                      name="until"
-                      placeholder="Until date"
-                      value={filters.until}
-                      onChange={handleFilterChange}
-                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
+                <div className="bg-white rounded-lg shadow-md p-4 mb-6">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-700">
+                        🔍 Filters
+                      </p>
+                      <div className="flex flex-wrap gap-3 text-xs text-gray-500 mt-1">
+                        <span>
+                          Showing:{" "}
+                          {filters.incoming && filters.outgoing
+                            ? "Incoming & Outgoing"
+                            : filters.incoming
+                            ? "Incoming"
+                            : "Outgoing"}
+                        </span>
+                        <span>Limit: {filters.limit || "—"}</span>
+                        {filters.since && <span>Since: {filters.since}</span>}
+                        {filters.until && <span>Until: {filters.until}</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={toggleIncoming}
+                        className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
+                          filters.incoming
+                            ? "bg-blue-600 text-white border-blue-600"
+                            : "border-gray-300 text-gray-600 hover:border-blue-400"
+                        }`}
+                      >
+                        Incoming
+                      </button>
+                      <button
+                        type="button"
+                        onClick={toggleOutgoing}
+                        className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
+                          filters.outgoing
+                            ? "bg-purple-600 text-white border-purple-600"
+                            : "border-gray-300 text-gray-600 hover:border-purple-400"
+                        }`}
+                      >
+                        Outgoing
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFiltersExpanded((prev) => !prev)}
+                        className="p-2 rounded-full border border-gray-200 hover:border-blue-400 text-blue-600 hover:text-blue-700 transition-colors flex items-center justify-center"
+                        aria-expanded={filtersExpanded}
+                        title={
+                          filtersExpanded
+                            ? "Hide advanced filters"
+                            : "Show advanced filters"
+                        }
+                      >
+                        <FilterIcon />
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    onClick={fetchInvoices}
-                    disabled={loading}
-                    className="w-full md:w-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold rounded-lg transition-colors"
-                  >
-                    {loading ? "Loading..." : "Fetch Invoices"}
-                  </button>
+
+                  {filtersExpanded && (
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <input
+                        type="number"
+                        name="limit"
+                        placeholder="Limit"
+                        value={filters.limit}
+                        onChange={handleFilterChange}
+                        min="1"
+                        max="100"
+                        className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <input
+                        type="date"
+                        name="since"
+                        placeholder="Since date"
+                        value={filters.since}
+                        onChange={handleFilterChange}
+                        className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <input
+                        type="date"
+                        name="until"
+                        placeholder="Until date"
+                        value={filters.until}
+                        onChange={handleFilterChange}
+                        className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  )}
+
+                  {filtersExpanded && (
+                    <p className="mt-3 text-xs text-gray-500">
+                      Filters update automatically when you make changes.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -2355,7 +2514,7 @@
               {!loading && invoices.length === 0 && (
                 <div className="text-center py-12 text-gray-500">
                   {isConnectionConfigured()
-                    ? 'No invoices found. Try adjusting your filters or click "Fetch Invoices".'
+                    ? "No invoices found. Try adjusting your filters."
                     : "Please configure your Odoo connection to get started."}
                 </div>
               )}
