@@ -1,9 +1,10 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals as _assertEquals } from "@std/assert";
 import { expect } from "@std/expect";
 import {
   OdooClient,
   OdooConfig,
   BankAccountIdentifier,
+  type ExpenseReport,
 } from "../src/lib/odoo.ts";
 import type { Address } from "viem";
 
@@ -11,7 +12,7 @@ import {
   EtherscanClient,
   EtherscanTokenTransfer,
 } from "../src/lib/etherscan.ts";
-import { getTokenInfo } from "../src/lib/blockchain.ts";
+import { getTokenInfo as _getTokenInfo } from "../src/lib/blockchain.ts";
 import { formatUnits } from "viem/utils";
 
 // Helper to check if Odoo is configured
@@ -25,13 +26,73 @@ function isOdooConfigured(): boolean {
 }
 
 // Helper to check if Etherscan is configured
-function isEtherscanConfigured(): boolean {
+function _isEtherscanConfigured(): boolean {
   return !!Deno.env.get("ETHEREUM_ETHERSCAN_API_KEY");
 }
 
 const chainId = 100; // Gnosis Chain
 const tokenAddress: Address = "0x420CA0f9B9b604cE0fd9C18EF134C705e5Fa3430"; // EURe token
 const walletAddress: Address = "0x6fDF0AaE33E313d9C98D2Aa19Bcd8EF777912CBf";
+
+Deno.test(
+  "getExpenseReports - fetch expense reports with expenses + attachments",
+  async () => {
+    if (!isOdooConfigured()) {
+      console.log("⏭️  Skipping: Odoo environment variables not configured");
+      return;
+    }
+
+    const config: OdooConfig = {
+      url: Deno.env.get("ODOO_URL") || "",
+      database: Deno.env.get("ODOO_DATABASE") || "",
+      username: Deno.env.get("ODOO_USERNAME") || "",
+      password: Deno.env.get("ODOO_PASSWORD") || "",
+    };
+
+    const odooClient = new OdooClient(config);
+    const authenticated = await odooClient.authenticate();
+    expect(authenticated).toBe(true);
+
+    const reports: ExpenseReport[] = await odooClient.getExpenseReports(5);
+    expect(Array.isArray(reports)).toBe(true);
+
+    // If there are no expense reports in this Odoo instance, that's fine.
+    if (reports.length === 0) return;
+
+    const r = reports[0];
+    expect(typeof r.id).toBe("number");
+    expect(typeof r.title).toBe("string");
+    expect(typeof r.total_amount).toBe("number");
+    expect(typeof r.status).toBe("string");
+    expect(Array.isArray(r.expenses)).toBe(true);
+
+    if (r.employee_name != null) {
+      expect(typeof r.employee_name).toBe("string");
+    }
+    if (r.bank_account_number != null) {
+      expect(typeof r.bank_account_number).toBe("string");
+    }
+    if (r.payment_status != null) {
+      expect(typeof r.payment_status).toBe("string");
+    }
+
+    if (r.expenses.length > 0) {
+      const e = r.expenses[0];
+      expect(typeof e.id).toBe("number");
+      expect(typeof e.description).toBe("string");
+      expect(typeof e.amount).toBe("number");
+      if (e.date != null) {
+        expect(typeof e.date).toBe("string");
+      }
+      if (e.attachment != null) {
+        expect(typeof e.attachment.id).toBe("number");
+        expect(typeof e.attachment.name).toBe("string");
+        expect(typeof e.attachment.mimetype).toBe("string");
+        expect(typeof e.attachment.url).toBe("string");
+      }
+    }
+  }
+);
 
 Deno.test("import txs", async () => {
   if (!isOdooConfigured()) {
@@ -143,7 +204,7 @@ Deno.test("import txs", async () => {
   //   credit: string; // "0.00"
   // };
 
-  function toISODate(s: string): string {
+  function _toISODate(s: string): string {
     const t = s.trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
     const m = t.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);

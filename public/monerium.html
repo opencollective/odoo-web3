@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Monerium Accounts</title>
+    <script
+      crossorigin
+      src="https://unpkg.com/react@18/umd/react.production.min.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
+    ></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+          "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans",
+          "Helvetica Neue", sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect } = React;
+
+      // Environment-aware localStorage helpers
+      // Initialize ENV with safe defaults
+      let ENV;
+      try {
+        ENV = {
+          environment: "{{ENV}}" || "sandbox",
+          serverWalletAddress: "{{SERVER_WALLET_ADDRESS}}" || "",
+        };
+        // Fallback if environment is empty string
+        if (!ENV.environment || ENV.environment === "{{ENV}}") {
+          ENV.environment = "sandbox";
+        }
+      } catch (e) {
+        console.error("Failed to initialize ENV:", e);
+        ENV = {
+          environment: "sandbox",
+          serverWalletAddress: "",
+        };
+      }
+
+      // Ensure getStorageKey is always defined and available
+      const getStorageKey = (baseKey) => {
+        try {
+          const env = (ENV && ENV.environment) || "sandbox";
+          return `${baseKey}_${env}`;
+        } catch (e) {
+          console.error("Error in getStorageKey:", e);
+          return `${baseKey}_sandbox`;
+        }
+      };
+
+      const getSelectedMoneriumAccount = () => {
+        try {
+          return localStorage.getItem(getStorageKey("monerium_selected_account")) || "";
+        } catch (err) {
+          return "";
+        }
+      };
+
+      const setSelectedMoneriumAccount = (address) => {
+        try {
+          if (address) {
+            localStorage.setItem(getStorageKey("monerium_selected_account"), address);
+          }
+        } catch (err) {
+          console.error("Failed to save selected Monerium account:", err);
+        }
+      };
+
+      // Sandbox Banner Component
+      function SandboxBanner() {
+        if (ENV.environment !== "sandbox") {
+          return null;
+        }
+
+        return (
+          <div className="bg-yellow-400 border-b border-yellow-500 px-4 py-2 text-center">
+            <p className="text-sm font-semibold text-yellow-900">
+              ⚠️ SANDBOX ENVIRONMENT - This is a test environment
+            </p>
+          </div>
+        );
+      }
+
+      const LoaderIcon = () => (
+        <svg
+          className="animate-spin h-8 w-8 text-blue-600"
+          fill="none"
+          viewBox="0 0 24 24"
+        >
+          <circle
+            className="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            strokeWidth="4"
+          ></circle>
+          <path
+            className="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+          ></path>
+        </svg>
+      );
+
+      const generateRandomString = (length) => {
+        const charset =
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+        let result = "";
+        const randomValues = new Uint8Array(length);
+        crypto.getRandomValues(randomValues);
+        for (let i = 0; i < length; i++) {
+          result += charset[randomValues[i] % charset.length];
+        }
+        return result;
+      };
+
+      const sha256 = async (plain) => {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(plain);
+        const hash = await crypto.subtle.digest("SHA-256", data);
+        return hash;
+      };
+
+      const base64urlencode = (buffer) => {
+        const bytes = new Uint8Array(buffer);
+        let str = "";
+        for (let i = 0; i < bytes.byteLength; i++) {
+          str += String.fromCharCode(bytes[i]);
+        }
+        return btoa(str)
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=/g, "");
+      };
+
+      const generatePKCE = async () => {
+        const codeVerifier = generateRandomString(128);
+        const hashed = await sha256(codeVerifier);
+        const codeChallenge = base64urlencode(hashed);
+        return { codeVerifier, codeChallenge };
+      };
+
+      // Simple navigation helper
+      const navigate = (path) => {
+        if (path === "/") {
+          window.location.href = "/";
+        } else {
+          window.location.href = path;
+        }
+      };
+
+      // Monerium Payment View - Simplified (No SDK)
+      function MoneriumView() {
+        const [accessToken, setAccessToken] = useState("");
+        const [connected, setConnected] = useState(false);
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState(null);
+        const [addresses, setAddresses] = useState([]);
+        const [addressLabels, setAddressLabels] = useState({});
+        const [addressJournalIds, setAddressJournalIds] = useState({});
+        const [editingLabel, setEditingLabel] = useState(null);
+        const [editingJournalId, setEditingJournalId] = useState(null);
+        const [labelValue, setLabelValue] = useState("");
+        const [journalIdValue, setJournalIdValue] = useState("");
+        const [selectedAddress, setSelectedAddress] = useState(null);
+        const [orders, setOrders] = useState([]);
+        const [ordersLoading, setOrdersLoading] = useState(false);
+        const [transactions, setTransactions] = useState([]);
+        const [transactionsLoading, setTransactionsLoading] = useState(false);
+        const [connectionSettings, setConnectionSettings] = useState(() => {
+          try {
+            const stored = localStorage.getItem(
+              getStorageKey("odoo_connection")
+            );
+            if (stored) return JSON.parse(stored);
+          } catch (err) {
+            console.error("Failed to load connection settings:", err);
+          }
+          return { url: "", db: "", username: "", password: "" };
+        });
+
+        // Load access token from localStorage on mount and check for OAuth callback
+        useEffect(() => {
+          const urlParams = new URLSearchParams(window.location.search);
+          const code = urlParams.get("code");
+          const errorParam = urlParams.get("error");
+          const errorDescription = urlParams.get("error_description");
+          const storedData = localStorage.getItem(
+            getStorageKey("monerium_oauth")
+          );
+
+          // Check for OAuth error
+          if (errorParam) {
+            const errorMsg = errorDescription
+              ? decodeURIComponent(errorDescription.replace(/\+/g, " "))
+              : errorParam;
+            setError(`OAuth Error: ${errorMsg}`);
+            console.error("❌ OAuth Error:", errorParam, errorDescription);
+            window.history.replaceState({}, document.title, "/monerium");
+            localStorage.removeItem(getStorageKey("monerium_oauth"));
+            return;
+          }
+
+          // Handle OAuth callback
+          if (code && storedData) {
+            const { codeVerifier, clientId, environment, accountAddress } =
+              JSON.parse(storedData);
+            exchangeCodeForToken(
+              code,
+              codeVerifier,
+              clientId,
+              environment,
+              accountAddress
+            );
+            window.history.replaceState({}, document.title, "/");
+            return;
+          }
+
+          // Try to load existing connection
+          const stored = localStorage.getItem(
+            getStorageKey("monerium_connection")
+          );
+          if (stored) {
+            try {
+              const data = JSON.parse(stored);
+              if (data.accessToken) {
+                // Check if token is expired
+                if (data.expiresAt && Date.now() >= data.expiresAt) {
+                  console.log("⏰ Token expired, clearing connection");
+                  localStorage.removeItem(getStorageKey("monerium_connection"));
+                  localStorage.removeItem(getStorageKey("monerium_oauth"));
+                  setError("Your Monerium session has expired. Please reconnect.");
+                } else {
+                  setAccessToken(data.accessToken);
+                  console.log("🔐 Connected to Monerium", data);
+                  setConnected(true);
+                }
+              }
+            } catch (err) {
+              console.error("Failed to load token:", err);
+            }
+          }
+
+          // Load address labels from localStorage
+          const storedLabels = localStorage.getItem(
+            getStorageKey("monerium_address_labels")
+          );
+          if (storedLabels) {
+            try {
+              setAddressLabels(JSON.parse(storedLabels));
+            } catch (err) {
+              console.error("Failed to load address labels:", err);
+            }
+          }
+
+          // Load address journal IDs from localStorage
+          const storedJournalIds = localStorage.getItem(
+            getStorageKey("monerium_address_journal_ids")
+          );
+          if (storedJournalIds) {
+            try {
+              setAddressJournalIds(JSON.parse(storedJournalIds));
+            } catch (err) {
+              console.error("Failed to load journal IDs:", err);
+            }
+          }
+        }, []);
+
+        useEffect(() => {
+          const loadAddresses = async () => {
+            if (!connected || !accessToken) return;
+            try {
+              const stored = localStorage.getItem(
+                getStorageKey("monerium_connection")
+              );
+              const connection = stored ? JSON.parse(stored) : {};
+              const environment = connection.environment || "sandbox";
+
+              const response = await fetch("/api/monerium/addresses", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  accessToken,
+                  environment,
+                }),
+              });
+              if (response.ok) {
+                const data = await response.json();
+                setAddresses(Array.isArray(data) ? data : []);
+              }
+            } catch (err) {
+              console.error("Failed to load addresses:", err);
+            }
+          };
+          loadAddresses();
+        }, [connected, accessToken]);
+
+        const exchangeCodeForToken = async (
+          code,
+          codeVerifier,
+          clientId,
+          environment,
+          storedAccountAddress
+        ) => {
+          try {
+            setLoading(true);
+            setError(null);
+
+            console.log("🔄 Sending token exchange request to backend...");
+
+            const tokenResponse = await fetch("/api/monerium/token", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                code,
+                codeVerifier,
+                clientId,
+                environment,
+              }),
+            });
+
+            if (!tokenResponse.ok) {
+              const errorData = await tokenResponse.json();
+              throw new Error(
+                errorData.error_description ||
+                  errorData.error ||
+                  "Failed to get access token"
+              );
+            }
+
+            const tokenData = await tokenResponse.json();
+            const token = tokenData.access_token;
+            const expiresIn = tokenData.expires_in; // seconds until expiration
+
+            // Calculate expiration timestamp (current time + expires_in seconds)
+            const expiresAt = expiresIn
+              ? Date.now() + (expiresIn * 1000)
+              : null;
+
+            // Save to localStorage, restoring previously selected account
+            localStorage.setItem(
+              getStorageKey("monerium_connection"),
+              JSON.stringify({
+                accessToken: token,
+                environment,
+                accountAddress: getSelectedMoneriumAccount(),
+                expiresAt,
+              })
+            );
+            localStorage.removeItem(getStorageKey("monerium_oauth"));
+            window.dispatchEvent(new Event("monerium-connection-updated"));
+
+            setAccessToken(token);
+            setConnected(true);
+            window.dispatchEvent(new Event("monerium-connection-updated"));
+            navigate("/");
+          } catch (err) {
+            console.error("Token exchange failed:", err);
+            setError(err.message || "Failed to complete authorization");
+            localStorage.removeItem(getStorageKey("monerium_oauth"));
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const [config, setConfig] = useState(null);
+        const [configLoading, setConfigLoading] = useState(true);
+
+        useEffect(() => {
+          const loadConfig = async () => {
+            try {
+              const response = await fetch("/api/monerium/config");
+              const data = await response.json();
+              if (response.ok) {
+                setConfig(data);
+              }
+            } catch (err) {
+              console.error("Failed to load config:", err);
+            } finally {
+              setConfigLoading(false);
+            }
+          };
+          loadConfig();
+        }, []);
+
+        const handleConnect = async () => {
+          if (!config?.clientId) {
+            setError("MONERIUM_CLIENT_ID is not configured on the server.");
+            return;
+          }
+
+          try {
+            setLoading(true);
+            setError(null);
+
+            // Try client credentials flow first if available
+            if (config?.hasClientSecret) {
+              const response = await fetch("/api/monerium/authenticate", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+              });
+
+              const data = await response.json();
+
+              if (!response.ok) {
+                throw new Error(
+                  data.error || "Failed to authenticate with client credentials"
+                );
+              }
+
+              const token = data.access_token;
+              if (!token) {
+                throw new Error("No access token received");
+              }
+
+              const stored = localStorage.getItem(
+                getStorageKey("monerium_connection")
+              );
+              const connection = stored ? JSON.parse(stored) : {};
+              const environment = connection.environment || "sandbox";
+
+              // Calculate expiration timestamp
+              const expiresIn = data.expires_in; // seconds until expiration
+              const expiresAt = expiresIn
+                ? Date.now() + (expiresIn * 1000)
+                : null;
+
+              const newConnection = {
+                accessToken: token,
+                environment,
+                accountAddress: getSelectedMoneriumAccount(),
+                expiresAt,
+              };
+
+              localStorage.setItem(
+                getStorageKey("monerium_connection"),
+                JSON.stringify(newConnection)
+              );
+              window.dispatchEvent(new Event("monerium-connection-updated"));
+              setAccessToken(token);
+              setConnected(true);
+              setLoading(false);
+              return;
+            }
+
+            // Fall back to PKCE flow
+            const { codeVerifier, codeChallenge } = await generatePKCE();
+            const stored = localStorage.getItem(
+              getStorageKey("monerium_connection")
+            );
+            const connection = stored ? JSON.parse(stored) : {};
+            const environment = connection.environment || "sandbox";
+
+            localStorage.setItem(
+              getStorageKey("monerium_oauth"),
+              JSON.stringify({
+                codeVerifier,
+                clientId: config.clientId,
+                environment,
+                accountAddress: getSelectedMoneriumAccount(),
+              })
+            );
+
+            const baseUrl =
+              environment === "production"
+                ? "https://api.monerium.app"
+                : "https://api.monerium.dev";
+            const authUrl = new URL(`${baseUrl}/auth`);
+            authUrl.searchParams.set("client_id", config.clientId);
+            authUrl.searchParams.set(
+              "redirect_uri",
+              window.location.origin + "/monerium"
+            );
+            authUrl.searchParams.set("code_challenge", codeChallenge);
+            authUrl.searchParams.set("code_challenge_method", "S256");
+            authUrl.searchParams.set("response_type", "code");
+
+            console.log("🚀 Redirecting to Monerium Auth");
+            window.location.href = authUrl.toString();
+          } catch (err) {
+            console.error("Authorization failed:", err);
+            setError(
+              err instanceof Error
+                ? err.message
+                : "Failed to start authorization"
+            );
+            setLoading(false);
+          }
+        };
+
+        const handleDisconnect = () => {
+          localStorage.removeItem(getStorageKey("monerium_connection"));
+          localStorage.removeItem(getStorageKey("monerium_oauth"));
+          window.dispatchEvent(new Event("monerium-connection-updated"));
+          setAccessToken("");
+          setConnected(false);
+          setError(null);
+          setAddresses([]);
+          setSelectedAddress(null);
+          setOrders([]);
+          setTransactions([]);
+        };
+
+        // Load orders when address is selected
+        useEffect(() => {
+          const loadOrders = async () => {
+            if (!selectedAddress || !accessToken) {
+              setOrders([]);
+              return;
+            }
+
+            setOrdersLoading(true);
+            try {
+              const stored = localStorage.getItem(
+                getStorageKey("monerium_connection")
+              );
+              const connection = stored ? JSON.parse(stored) : {};
+              const environment = connection.environment || "sandbox";
+
+              const response = await fetch("/api/monerium/orders", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  accessToken,
+                  environment,
+                  address: selectedAddress.address,
+                }),
+              });
+
+              if (response.ok) {
+                const data = await response.json();
+                setOrders(Array.isArray(data.orders) ? data.orders : []);
+              }
+            } catch (err) {
+              console.error("Failed to load orders:", err);
+            } finally {
+              setOrdersLoading(false);
+            }
+          };
+
+          loadOrders();
+        }, [selectedAddress, accessToken]);
+
+        // Load transactions when address with journal ID is selected
+        useEffect(() => {
+          const loadTransactions = async () => {
+            if (!selectedAddress) {
+              setTransactions([]);
+              return;
+            }
+
+            const key = getAddressKey(
+              selectedAddress.address,
+              selectedAddress.chain
+            );
+            const journalId = addressJournalIds[key];
+
+            if (
+              !journalId ||
+              !connectionSettings.url ||
+              !connectionSettings.db
+            ) {
+              setTransactions([]);
+              return;
+            }
+
+            setTransactionsLoading(true);
+            try {
+              const params = new URLSearchParams({
+                journalId: journalId.toString(),
+                limit: "20",
+                page: "1",
+                url: connectionSettings.url,
+                db: connectionSettings.db,
+              });
+
+              if (connectionSettings.username) {
+                params.append("username", connectionSettings.username);
+              }
+              if (connectionSettings.password) {
+                params.append("password", connectionSettings.password);
+              }
+
+              const response = await fetch(
+                `/api/odoo/transactions?${params.toString()}`
+              );
+              if (response.ok) {
+                const data = await response.json();
+                setTransactions(
+                  Array.isArray(data.transactions) ? data.transactions : []
+                );
+              }
+            } catch (err) {
+              console.error("Failed to load transactions:", err);
+            } finally {
+              setTransactionsLoading(false);
+            }
+          };
+
+          loadTransactions();
+        }, [selectedAddress, addressJournalIds, connectionSettings]);
+
+        const getAddressKey = (address, chain) => `${address}-${chain}`;
+        const getAddressLabel = (address, chain) => {
+          const key = getAddressKey(address, chain);
+          return (
+            addressLabels[key] ||
+            `${address.substring(0, 6)}...${address.substring(
+              address.length - 4
+            )} (${chain})`
+          );
+        };
+
+        const handleStartEditLabel = (addressKey) => {
+          setEditingLabel(addressKey);
+          setLabelValue(addressLabels[addressKey] || "");
+        };
+
+        const handleSaveLabel = (addressKey) => {
+          const newLabels = { ...addressLabels, [addressKey]: labelValue };
+          setAddressLabels(newLabels);
+          localStorage.setItem(
+            getStorageKey("monerium_address_labels"),
+            JSON.stringify(newLabels)
+          );
+          setEditingLabel(null);
+          setLabelValue("");
+        };
+
+        const handleStartEditJournalId = (addressKey) => {
+          setEditingJournalId(addressKey);
+          setJournalIdValue(addressJournalIds[addressKey]?.toString() || "");
+        };
+
+        const handleSaveJournalId = (addressKey) => {
+          const journalId = journalIdValue.trim()
+            ? parseInt(journalIdValue)
+            : null;
+          const newJournalIds = { ...addressJournalIds };
+          if (journalId) {
+            newJournalIds[addressKey] = journalId;
+          } else {
+            delete newJournalIds[addressKey];
+          }
+          setAddressJournalIds(newJournalIds);
+          localStorage.setItem(
+            getStorageKey("monerium_address_journal_ids"),
+            JSON.stringify(newJournalIds)
+          );
+          setEditingJournalId(null);
+          setJournalIdValue("");
+        };
+
+        const handleCancelEdit = () => {
+          setEditingLabel(null);
+          setEditingJournalId(null);
+          setLabelValue("");
+          setJournalIdValue("");
+        };
+
+        const handleSelectAccount = (addr) => {
+          const isSelected =
+            selectedAddress?.address === addr.address &&
+            selectedAddress?.chain === addr.chain;
+
+          setSelectedAddress(isSelected ? null : addr);
+
+          // Save the selected account to localStorage for use in pay modal
+          if (!isSelected) {
+            setSelectedMoneriumAccount(addr.address);
+            const stored = localStorage.getItem(
+              getStorageKey("monerium_connection")
+            );
+            if (stored) {
+              try {
+                const connection = JSON.parse(stored);
+                connection.accountAddress = addr.address;
+                localStorage.setItem(
+                  getStorageKey("monerium_connection"),
+                  JSON.stringify(connection)
+                );
+                window.dispatchEvent(new Event("monerium-connection-updated"));
+              } catch (err) {
+                console.error("Failed to save selected account:", err);
+              }
+            }
+          }
+        };
+
+        return (
+          <div className="min-h-screen bg-gray-50">
+            <SandboxBanner />
+            <div className="max-w-7xl mx-auto px-4 py-8">
+              <div className="mb-8 flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <button
+                    onClick={() => navigate("/")}
+                    className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
+                  >
+                    ← Back
+                  </button>
+                  <h1 className="text-4xl font-bold text-gray-900">
+                    💳 Monerium Accounts
+                  </h1>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => navigate("/monerium/pay")}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                  >
+                    💸 Initiate Payment
+                  </button>
+                  {connected && (
+                    <button
+                      onClick={handleDisconnect}
+                      className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg transition-colors"
+                    >
+                      Disconnect
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {error && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-800">{error}</p>
+                </div>
+              )}
+
+              {loading && (
+                <div className="flex items-center justify-center py-12">
+                  <LoaderIcon />
+                </div>
+              )}
+
+              {!connected && !loading && (
+                <div className="bg-white rounded-lg shadow-lg p-8">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-6">
+                    🔐 Connect to Monerium
+                  </h2>
+                  <p className="text-sm text-gray-600 mb-6">
+                    Connect your Monerium account to manage your accounts and
+                    view orders.
+                  </p>
+                  <button
+                    onClick={handleConnect}
+                    disabled={loading}
+                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold rounded-lg transition-colors"
+                  >
+                    {loading ? "Connecting..." : "Connect with Monerium"}
+                  </button>
+                </div>
+              )}
+
+              {connected && !loading && (
+                <>
+                  <div className="bg-white rounded-lg shadow-lg p-8 mb-6">
+                    <h2 className="text-2xl font-bold text-gray-900 mb-6">
+                      💳 Monerium Accounts
+                    </h2>
+                    {addresses.length > 0 ? (
+                      <div className="space-y-3">
+                        {addresses.map((addr) => {
+                          const key = getAddressKey(addr.address, addr.chain);
+                          const isEditingLabel = editingLabel === key;
+                          const isEditingJournalId = editingJournalId === key;
+                          const isSelected =
+                            selectedAddress?.address === addr.address &&
+                            selectedAddress?.chain === addr.chain;
+                          const journalId = addressJournalIds[key];
+                          return (
+                            <div
+                              key={key}
+                              className={`p-4 border rounded-lg ${
+                                isSelected
+                                  ? "border-blue-500 bg-blue-50"
+                                  : "border-gray-200"
+                              }`}
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-3 mb-2">
+                                    <button
+                                      onClick={() => handleSelectAccount(addr)}
+                                      className={`px-3 py-1 rounded text-sm ${
+                                        isSelected
+                                          ? "bg-blue-600 text-white"
+                                          : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                                      }`}
+                                    >
+                                      {isSelected ? "Selected" : "Select"}
+                                    </button>
+                                    <p className="font-medium text-gray-900">
+                                      {getAddressLabel(
+                                        addr.address,
+                                        addr.chain
+                                      )}
+                                    </p>
+                                  </div>
+                                  <p className="text-xs text-gray-500 font-mono mb-1">
+                                    {addr.address}
+                                  </p>
+                                  <p className="text-xs text-gray-500 mb-2">
+                                    Chain: {addr.chain} | Balance: €
+                                    {addr.balance || "0.00"}
+                                  </p>
+                                  {isEditingLabel ? (
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <input
+                                        type="text"
+                                        value={labelValue}
+                                        onChange={(e) =>
+                                          setLabelValue(e.target.value)
+                                        }
+                                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                        placeholder="Enter label"
+                                        autoFocus
+                                      />
+                                      <button
+                                        onClick={() => handleSaveLabel(key)}
+                                        className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm"
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        onClick={handleCancelEdit}
+                                        className="px-3 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleStartEditLabel(key)}
+                                      className="px-3 py-1 text-xs text-blue-600 hover:text-blue-700 border border-blue-200 rounded hover:bg-blue-50 mb-2"
+                                    >
+                                      Edit Label
+                                    </button>
+                                  )}
+                                  {isEditingJournalId ? (
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="number"
+                                        value={journalIdValue}
+                                        onChange={(e) =>
+                                          setJournalIdValue(e.target.value)
+                                        }
+                                        className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                        placeholder="Journal ID"
+                                        autoFocus
+                                      />
+                                      <button
+                                        onClick={() => handleSaveJournalId(key)}
+                                        className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm"
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        onClick={handleCancelEdit}
+                                        className="px-3 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs text-gray-600">
+                                        Odoo Journal ID:{" "}
+                                        {journalId ? (
+                                          <span className="font-mono font-semibold">
+                                            {journalId}
+                                          </span>
+                                        ) : (
+                                          <span className="text-gray-400">
+                                            Not set
+                                          </span>
+                                        )}
+                                      </span>
+                                      <button
+                                        onClick={() =>
+                                          handleStartEditJournalId(key)
+                                        }
+                                        className="px-3 py-1 text-xs text-blue-600 hover:text-blue-700 border border-blue-200 rounded hover:bg-blue-50"
+                                      >
+                                        {journalId ? "Edit" : "Set"} Journal ID
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-gray-500">No addresses found.</p>
+                    )}
+                  </div>
+
+                  {selectedAddress && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <div className="bg-white rounded-lg shadow-lg p-6">
+                        <h3 className="text-xl font-bold text-gray-900 mb-4">
+                          📋 Monerium Orders
+                        </h3>
+                        {ordersLoading ? (
+                          <div className="flex items-center justify-center py-8">
+                            <LoaderIcon />
+                          </div>
+                        ) : orders.length > 0 ? (
+                          <div className="space-y-3 max-h-96 overflow-y-auto">
+                            {orders.map((order) => (
+                              <div
+                                key={order.id}
+                                className="p-3 border border-gray-200 rounded-lg"
+                              >
+                                <div className="flex justify-between items-start mb-2">
+                                  <span className="text-sm font-medium text-gray-900">
+                                    Order {order.id}
+                                  </span>
+                                  <span className="text-xs text-gray-500">
+                                    {order.created_at
+                                      ? new Date(
+                                          order.created_at
+                                        ).toLocaleDateString()
+                                      : "—"}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-gray-600 mb-1">
+                                  Amount: €{order.amount || "0.00"}
+                                </p>
+                                <p className="text-xs text-gray-600 mb-1">
+                                  Status: {order.state || "unknown"}
+                                </p>
+                                {order.memo && (
+                                  <p className="text-xs text-gray-500">
+                                    {order.memo}
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-gray-500 text-sm">
+                            No orders found for this account.
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="bg-white rounded-lg shadow-lg p-6">
+                        <h3 className="text-xl font-bold text-gray-900 mb-4">
+                          📊 Odoo Transactions
+                        </h3>
+                        {(() => {
+                          const key = getAddressKey(
+                            selectedAddress.address,
+                            selectedAddress.chain
+                          );
+                          const journalId = addressJournalIds[key];
+                          if (!journalId) {
+                            return (
+                              <p className="text-gray-500 text-sm">
+                                Set a Journal ID for this account to view
+                                transactions.
+                              </p>
+                            );
+                          }
+                          if (
+                            !connectionSettings.url ||
+                            !connectionSettings.db
+                          ) {
+                            return (
+                              <p className="text-gray-500 text-sm">
+                                Configure Odoo connection to view transactions.
+                              </p>
+                            );
+                          }
+                          if (transactionsLoading) {
+                            return (
+                              <div className="flex items-center justify-center py-8">
+                                <LoaderIcon />
+                              </div>
+                            );
+                          }
+                          if (transactions.length > 0) {
+                            return (
+                              <div className="space-y-3 max-h-96 overflow-y-auto">
+                                {transactions.map((tx) => (
+                                  <div
+                                    key={tx.id}
+                                    className="p-3 border border-gray-200 rounded-lg"
+                                  >
+                                    <div className="flex justify-between items-start mb-2">
+                                      <span className="text-sm font-medium text-gray-900">
+                                        {tx.name ||
+                                          tx.ref ||
+                                          `Transaction ${tx.id}`}
+                                      </span>
+                                      <span className="text-xs text-gray-500">
+                                        {tx.date
+                                          ? new Date(
+                                              tx.date
+                                            ).toLocaleDateString()
+                                          : "—"}
+                                      </span>
+                                    </div>
+                                    <p className="text-xs text-gray-600 mb-1">
+                                      Amount: €
+                                      {Math.abs(tx.amount || 0).toFixed(2)}
+                                    </p>
+                                    {tx.partner_id &&
+                                      Array.isArray(tx.partner_id) && (
+                                        <p className="text-xs text-gray-600">
+                                          Partner: {tx.partner_id[1]}
+                                        </p>
+                                      )}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          }
+                          return (
+                            <p className="text-gray-500 text-sm">
+                              No transactions found in this journal.
+                            </p>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      ReactDOM.render(<MoneriumView />, document.getElementById("root"));
+    </script>
+  </body>
+</html>

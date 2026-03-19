@@ -1,4 +1,5 @@
 import type { Address, Hash } from "viem";
+import { readCache, writeCache } from "./cache.ts";
 
 export type EtherscanTransaction = {
   blockNumber: string;
@@ -37,6 +38,7 @@ export type EtherscanTokenTransfer = {
   tokenSymbol: string;
   tokenDecimal: string;
   transactionIndex: string;
+  logIndex: string;
   gas: string;
   gasPrice: string;
   gasUsed: string;
@@ -53,18 +55,29 @@ export type EtherscanConfig = {
 /**
  * Client for interacting with Etherscan-compatible APIs (Etherscan, GnosisScan, etc.)
  */
+// Chain-specific API URLs
+// Etherscan v2 supports many chains but not testnets like Chiado.
+// For unsupported chains, fall back to Blockscout which is Etherscan-compatible.
+const CHAIN_API_URLS: Record<number, string> = {
+  100: "https://gnosis.blockscout.com/api",  // Gnosis (Blockscout — Etherscan v2 index is often stale)
+  10200: "https://gnosis-chiado.blockscout.com/api", // Chiado (Blockscout)
+};
+
 export class EtherscanClient {
   private apiUrl: string;
   private apiKey?: string;
   private chainId: number;
+  private useChainIdParam: boolean;
   private rateLimitDelay: number = 200; // 200ms between requests (5 req/sec)
 
   constructor(chainId: number) {
-    this.apiUrl = "https://api.etherscan.io/v2/api";
+    this.apiUrl = CHAIN_API_URLS[chainId] || "https://api.etherscan.io/v2/api";
     this.apiKey = Deno.env.get("ETHEREUM_ETHERSCAN_API_KEY");
     this.chainId = chainId;
+    // Only send chainid param for Etherscan v2 (not for Blockscout)
+    this.useChainIdParam = this.apiUrl.includes("etherscan.io");
 
-    if (!this.apiKey) {
+    if (this.useChainIdParam && !this.apiKey) {
       throw new Error("Etherscan API key is required");
     }
   }
@@ -75,12 +88,13 @@ export class EtherscanClient {
   private async request<T>(params: Record<string, string>): Promise<T> {
     const url = new URL(this.apiUrl);
 
-    // Add API key if available
     if (this.apiKey) {
       params.apikey = this.apiKey;
     }
 
-    params.chainid = this.chainId.toString();
+    if (this.useChainIdParam) {
+      params.chainid = this.chainId.toString();
+    }
 
     // Add all parameters to URL
     Object.entries(params).forEach(([key, value]) => {
@@ -97,7 +111,8 @@ export class EtherscanClient {
 
     const data = await response.json();
 
-    if (data.status === "0" && data.message !== "No transactions found") {
+    const msg = (data.message || "").toLowerCase();
+    if (data.status === "0" && !msg.includes("no transactions found") && !msg.includes("no token transfers found")) {
       throw new Error(`Etherscan API error: ${data.message || data.result}`);
     }
 
@@ -216,6 +231,33 @@ export class EtherscanClient {
     page: number = 1,
     offset: number = 10000
   ): Promise<EtherscanTokenTransfer[]> {
+    // Check cache for default calls (page 1, full offset, no block filters)
+    const useCache = page === 1 && offset === 10000 && startBlock === undefined && endBlock === undefined;
+    if (useCache) {
+      const cacheKey = `etherscan-tokentx-${this.chainId}-${address.toLowerCase()}-${(contractAddress || "all").toLowerCase()}`;
+      const cached = await readCache<EtherscanTokenTransfer[]>(cacheKey);
+      if (cached) {
+        console.log(`[cache] Using cached token transfers (${cached.length} entries) for ${address}`);
+        return cached;
+      }
+
+      // Fetch from API
+      const result = await this._fetchTokenTransfers(address, contractAddress, startBlock, endBlock, page, offset);
+      await writeCache(cacheKey, result);
+      return result;
+    }
+
+    return this._fetchTokenTransfers(address, contractAddress, startBlock, endBlock, page, offset);
+  }
+
+  private async _fetchTokenTransfers(
+    address: Address,
+    contractAddress?: Address,
+    startBlock?: number,
+    endBlock?: number,
+    page: number = 1,
+    offset: number = 10000
+  ): Promise<EtherscanTokenTransfer[]> {
     const params: Record<string, string> = {
       module: "account",
       action: "tokentx",
@@ -248,6 +290,25 @@ export class EtherscanClient {
       }
       throw error;
     }
+  }
+
+  /**
+   * Get ERC-20 token balance for an address.
+   */
+  async getTokenBalance(
+    address: Address,
+    contractAddress: Address
+  ): Promise<string> {
+    // Balance is never cached — it changes with every transfer
+    const params: Record<string, string> = {
+      module: "account",
+      action: "tokenbalance",
+      address,
+      contractaddress: contractAddress,
+      tag: "latest",
+    };
+
+    return await this.request<string>(params);
   }
 
   /**

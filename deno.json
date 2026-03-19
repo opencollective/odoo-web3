@@ -1,7 +1,9 @@
 {
   "tasks": {
-    "dev": "deno run --watch main.ts",
-    "server": "deno run --allow-net --allow-read --allow-env --env-file=.env server.ts"
+    "dev": "deno run -A --env-file=.env.test --watch src/server/index.ts",
+    "server": "deno run --allow-net --allow-read --allow-env --env-file=.env src/server/index.ts",
+    "test": "deno test --allow-net --allow-env --env-file=.env.test",
+    "test:employees": "deno test --allow-net --allow-env --env-file=.env.test tests/get-employees.test.ts"
   },
   "imports": {
     "@safe-global/types-kit": "npm:@safe-global/types-kit@^3.0.0",
@@ -10,5 +12,6 @@
     "viem": "npm:viem@^2.38.3",
     "@safe-global/protocol-kit": "npm:@safe-global/protocol-kit@6.1.1",
     "@safe-global/safe-core-sdk-types": "npm:@safe-global/safe-core-sdk-types@^1.1.1",
+    "@swc/core": "npm:@swc/core@latest"
   }
 }
