@@ -38,7 +38,8 @@
       "Bash(set -a && source /Users/xdamman/github/opencollective/odoo-web3/.env.test && set +a && deno eval \"\nimport { OdooClient } from './src/lib/odoo.ts';\nimport { EtherscanClient } from './src/lib/etherscan.ts';\n\nconst c = new OdooClient\\({ url: Deno.env.get\\('ODOO_URL'\\), database: Deno.env.get\\('ODOO_DATABASE'\\), username: Deno.env.get\\('ODOO_USERNAME'\\), password: Deno.env.get\\('ODOO_PASSWORD'\\) }\\);\nawait c.authenticate\\(\\);\n\nconst etherscan = new EtherscanClient\\(100\\); // gnosis\nconst address = '0xD578e7cd845e1ecD979b04784e77068D5eBd8716';\nconst token = '0x420CA0f9B9b604cE0fd9C18EF134C705e5Fa3430';\nlet transfers = await etherscan.getTokenTransfers\\(address, token\\);\nconsole.log\\('Total transfers on chain:', transfers.length\\);\n\n// Only sync 5 to test\ntransfers.sort\\(\\(a, b\\) => parseInt\\(a.timeStamp\\) - parseInt\\(b.timeStamp\\)\\);\ntransfers = transfers.slice\\(-5\\);\n\nconst result = await c.syncBlockchainTransactions\\(44, transfers, address, 'gnosis', \\(p\\) => console.log\\(p.status\\)\\);\nconsole.log\\('Sync result:', result\\);\nconsole.log\\('After:', await c.countJournalEntries\\(44\\)\\);\n\" 2>&1)",
       "Bash(set -a && source /Users/xdamman/github/opencollective/odoo-web3/.env.test && set +a && deno eval \"\nimport { OdooClient } from './src/lib/odoo.ts';\nconst c = new OdooClient\\({ url: Deno.env.get\\('ODOO_URL'\\), database: Deno.env.get\\('ODOO_DATABASE'\\), username: Deno.env.get\\('ODOO_USERNAME'\\), password: Deno.env.get\\('ODOO_PASSWORD'\\) }\\);\nawait c.authenticate\\(\\);\nawait c.emptyJournal\\(44\\);\nconsole.log\\('After empty:', await c.countJournalEntries\\(44\\)\\);\n\" 2>&1)",
       "Bash(deno eval:*)",
-      "Bash(ls cache/etherscan-balance-* 2>/dev/null || echo \"No balance cache files\")"
+      "Bash(ls cache/etherscan-balance-* 2>/dev/null || echo \"No balance cache files\")",
+      "Bash(deno run:*)"
     ]
   }
 }
