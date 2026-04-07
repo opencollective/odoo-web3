@@ -82,9 +82,10 @@ export async function handleLockRequest(req: Request): Promise<Response> {
 }
 
 /**
- * POST /api/unlock/verify — test that a passphrase can decrypt the key.
- * Decrypts, derives the wallet address to confirm the key is valid,
- * then immediately locks the key again. Returns { ok, address } or { ok: false, error }.
+ * POST /api/unlock/verify — verify a passphrase and keep the server unlocked.
+ * Decrypts the key to derive the wallet address and confirm validity.
+ * The passphrase is stored in memory for on-demand decryption during signing.
+ * Returns { ok, address } or { ok: false, error }.
  */
 export async function handleVerifyPassphraseRequest(req: Request): Promise<Response> {
   if (req.method !== "POST") {
@@ -130,7 +131,7 @@ export async function handleVerifyPassphraseRequest(req: Request): Promise<Respo
   // Derive address to confirm the key is valid
   let address: string | null = null;
   try {
-    let key = getPrivateKey()!;
+    let key = (await getPrivateKey())!;
     if (!key.startsWith("0x")) key = `0x${key}`;
     const account = privateKeyToAccount(key as `0x${string}`);
     address = account.address;
@@ -142,8 +143,7 @@ export async function handleVerifyPassphraseRequest(req: Request): Promise<Respo
     );
   }
 
-  // Lock immediately — the key was only needed for verification
-  lock();
+  // Passphrase stays in memory — getPrivateKey() will decrypt on demand for signing
 
   return new Response(
     JSON.stringify({ ok: true, address }),

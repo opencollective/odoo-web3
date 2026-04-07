@@ -32,7 +32,7 @@ export async function signMessage(
   safeAddressOverride?: string,
   chain: "gnosis" | "chiado" = "chiado"
 ): Promise<string> {
-  const privateKey = getPrivateKey();
+  const privateKey = await getPrivateKey();
   if (!privateKey) {
     throw new Error("Signing key not available. Unlock via /api/unlock first.");
   }

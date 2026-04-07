@@ -151,7 +151,7 @@ export async function handleBatchOrder(req: Request): Promise<Response> {
       batchSignature = providedSignature;
     } else {
       // Sign with server keystore or Safe
-      let privateKey = getPrivateKey();
+      let privateKey = await getPrivateKey();
       if (!privateKey) {
         return new Response(
           JSON.stringify({

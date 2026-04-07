@@ -1,9 +1,11 @@
 /**
  * In-memory keystore for the server's signing private key.
  *
- * The private key is stored encrypted at rest (in the PRIVATE_KEY_ENCRYPTED env var)
- * and only decrypted into memory when an admin submits the passphrase via /api/unlock.
- * On process restart the key is gone — the admin must unlock again.
+ * The private key is stored encrypted at rest (in the PRIVATE_KEY_ENCRYPTED env var).
+ * The admin submits the passphrase once (via /api/unlock or onboarding).
+ * The passphrase is kept in memory — the private key is decrypted on demand
+ * for each signing operation and immediately discarded.
+ * On process restart or explicit lock, the passphrase is wiped.
  *
  * Encryption: AES-256-GCM with a key derived from a passphrase via PBKDF2 (100k iterations).
  * Format: base64(salt):base64(iv):base64(ciphertext):base64(authTag)
@@ -13,32 +15,43 @@ const PBKDF2_ITERATIONS = 100_000;
 const SALT_BYTES = 16;
 const IV_BYTES = 12;
 
-// In-memory state — only populated after unlock
-let decryptedPrivateKey: string | null = null;
+// Only the passphrase lives in memory — the private key is decrypted on demand
+let storedPassphrase: string | null = null;
 
-/** Returns the decrypted private key, or null if locked. */
-export function getPrivateKey(): string | null {
-  return decryptedPrivateKey;
+/**
+ * Decrypt and return the private key on demand.
+ * The key exists only for the duration of the caller's use — it is not cached.
+ * Returns null if locked (no passphrase stored).
+ */
+export async function getPrivateKey(): Promise<string | null> {
+  if (!storedPassphrase) return null;
+  const encrypted = process.env.PRIVATE_KEY_ENCRYPTED;
+  if (!encrypted) return null;
+  try {
+    return await decrypt(encrypted, storedPassphrase);
+  } catch {
+    return null;
+  }
 }
 
-/** Whether the keystore has a usable key. */
+/** Whether the keystore has a passphrase and can decrypt on demand. */
 export function isUnlocked(): boolean {
-  return decryptedPrivateKey !== null;
+  return storedPassphrase !== null;
 }
 
 /** Whether an encrypted key is configured (and thus unlock is required). */
 export function needsUnlock(): boolean {
-  return !!process.env.PRIVATE_KEY_ENCRYPTED && !decryptedPrivateKey;
+  return !!process.env.PRIVATE_KEY_ENCRYPTED && storedPassphrase === null;
 }
 
-/** Lock the keystore (clear the decrypted key from memory). */
+/** Lock the keystore (wipe the passphrase from memory). */
 export function lock(): void {
-  decryptedPrivateKey = null;
+  storedPassphrase = null;
 }
 
 /**
- * Decrypt the PRIVATE_KEY_ENCRYPTED env var with the given passphrase.
- * On success, stores the result in memory and returns true.
+ * Verify the passphrase can decrypt PRIVATE_KEY_ENCRYPTED, then store it in memory.
+ * Returns true on success.
  */
 export async function unlock(passphrase: string): Promise<boolean> {
   const encrypted = process.env.PRIVATE_KEY_ENCRYPTED;
@@ -53,7 +66,7 @@ export async function unlock(passphrase: string): Promise<boolean> {
     if (!/^[a-fA-F0-9]{64}$/.test(cleaned)) {
       throw new Error("Decrypted value is not a valid private key");
     }
-    decryptedPrivateKey = decrypted;
+    storedPassphrase = passphrase;
     return true;
   } catch {
     return false;

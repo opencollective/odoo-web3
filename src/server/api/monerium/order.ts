@@ -90,7 +90,7 @@ export async function handleMoneriumOrderPlacement(
       signature = providedSignature;
     } else {
       // Otherwise, use server-side signing with the keystore
-      let privateKey = getPrivateKey();
+      let privateKey = await getPrivateKey();
       if (!privateKey) {
         console.error(
           "❌ Signing key locked and no signature provided"
