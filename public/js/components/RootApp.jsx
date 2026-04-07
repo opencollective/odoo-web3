@@ -38,16 +38,19 @@ export function RootApp() {
         await fetch("/api/lock", { method: "POST" });
       } catch {}
     }
-    // Clear all localStorage for the current environment
-    const env = ENV.environment || "sandbox";
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.endsWith(`_${env}`)) {
-        keysToRemove.push(key);
-      }
-    }
-    keysToRemove.forEach((k) => localStorage.removeItem(k));
+    // Only clear connection-related keys, keep user data (labels, settings, etc.)
+    const connectionKeys = [
+      "odoo_connection",
+      "monerium_connection",
+      "monerium_oauth",
+      "monerium_selected_account",
+      "opencollective_api_key",
+      "opencollective_collective",
+      "keystore_verified",
+    ];
+    connectionKeys.forEach((key) => {
+      localStorage.removeItem(getStorageKey(key));
+    });
     window.location.href = "/";
   }, []);
 

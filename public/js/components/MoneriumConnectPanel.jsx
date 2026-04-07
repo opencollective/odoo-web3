@@ -1,11 +1,63 @@
 import { generatePKCE } from "../utils/crypto.js";
 import { getStorageKey } from "../config.js";
 import { getSelectedMoneriumAccount, setSelectedMoneriumAccount } from "../utils/storage.js";
+import { formatAddress } from "../utils/format.js";
 import { LoaderIcon } from "./icons.jsx";
 
 const { useState, useEffect, useCallback } = React;
 
-export function MoneriumConnectPanel({ connection, onConnectionChange }) {
+function CopyableAddress({ address, chain }) {
+  const [copied, setCopied] = useState(false);
+  const short = formatAddress(address);
+  const explorerUrl = `https://txinfo.xyz/${chain}/address/${address}`;
+
+  const handleCopy = async (e) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="font-mono text-sm" title={address}>
+        {short}
+      </span>
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="text-gray-400 hover:text-gray-600 transition-colors"
+        title="Copy full address"
+      >
+        {copied ? (
+          <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+        ) : (
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+        )}
+      </button>
+      <a
+        href={explorerUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-gray-400 hover:text-blue-500 transition-colors"
+        title="View on explorer"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+        </svg>
+      </a>
+    </span>
+  );
+}
+
+export function MoneriumConnectPanel({ connection, onConnectionChange, embedded }) {
   const [config, setConfig] = useState(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [configError, setConfigError] = useState(null);
@@ -67,7 +119,6 @@ export function MoneriumConnectPanel({ connection, onConnectionChange }) {
         }),
       });
       const data = await response.json();
-      console.log("🔍 Addresses:", data);
       if (!response.ok) {
         throw new Error(
           data.error || data.message || "Failed to load Monerium accounts"
@@ -105,15 +156,12 @@ export function MoneriumConnectPanel({ connection, onConnectionChange }) {
         );
         return;
       }
-      // Trigger the connect flow
       const connectFlow = async () => {
         try {
           setLoading(true);
           setError(null);
 
-          // Try client credentials flow first if available
           if (config?.hasClientSecret) {
-            console.log("🔐 Using client credentials authentication");
             const response = await fetch("/api/monerium/authenticate", {
               method: "POST",
               headers: {
@@ -134,8 +182,7 @@ export function MoneriumConnectPanel({ connection, onConnectionChange }) {
               throw new Error("No access token received");
             }
 
-            // Calculate expiration timestamp
-            const expiresIn = data.expires_in; // seconds until expiration
+            const expiresIn = data.expires_in;
             const expiresAt = expiresIn
               ? Date.now() + (expiresIn * 1000)
               : null;
@@ -157,8 +204,6 @@ export function MoneriumConnectPanel({ connection, onConnectionChange }) {
             return;
           }
 
-          // Fall back to PKCE flow
-          console.log("🔐 Using PKCE authentication flow");
           const { codeVerifier, codeChallenge } = await generatePKCE();
 
           localStorage.setItem(
@@ -185,7 +230,6 @@ export function MoneriumConnectPanel({ connection, onConnectionChange }) {
           authUrl.searchParams.set("code_challenge_method", "S256");
           authUrl.searchParams.set("response_type", "code");
 
-          console.log("🚀 Redirecting to Monerium Auth", authUrl.toString());
           window.location.href = authUrl.toString();
         } catch (err) {
           console.error("Authorization failed:", err);
@@ -212,9 +256,7 @@ export function MoneriumConnectPanel({ connection, onConnectionChange }) {
       setLoading(true);
       setError(null);
 
-      // Try client credentials flow first if available
       if (config?.hasClientSecret) {
-        console.log("🔐 Using client credentials authentication");
         const response = await fetch("/api/monerium/authenticate", {
           method: "POST",
           headers: {
@@ -235,13 +277,11 @@ export function MoneriumConnectPanel({ connection, onConnectionChange }) {
           throw new Error("No access token received");
         }
 
-        // Calculate expiration timestamp
-        const expiresIn = data.expires_in; // seconds until expiration
+        const expiresIn = data.expires_in;
         const expiresAt = expiresIn
           ? Date.now() + (expiresIn * 1000)
           : null;
 
-        // Save connection, restoring previously selected account if any
         const savedAccount = getSelectedMoneriumAccount();
         const newConnection = {
           accessToken: token,
@@ -259,8 +299,6 @@ export function MoneriumConnectPanel({ connection, onConnectionChange }) {
         return;
       }
 
-      // Fall back to PKCE flow if no client secret
-      console.log("🔐 Using PKCE authentication flow");
       const { codeVerifier, codeChallenge } = await generatePKCE();
 
       localStorage.setItem(
@@ -287,7 +325,6 @@ export function MoneriumConnectPanel({ connection, onConnectionChange }) {
       authUrl.searchParams.set("code_challenge_method", "S256");
       authUrl.searchParams.set("response_type", "code");
 
-      console.log("🚀 Redirecting to Monerium Auth", authUrl.toString());
       window.location.href = authUrl.toString();
     } catch (err) {
       console.error("Authorization failed:", err);
@@ -325,7 +362,7 @@ export function MoneriumConnectPanel({ connection, onConnectionChange }) {
       return (
         <div className="flex items-center gap-3 text-sm text-gray-600">
           <LoaderIcon />
-          <span>Loading accounts…</span>
+          <span>Loading accounts...</span>
         </div>
       );
     }
@@ -348,73 +385,84 @@ export function MoneriumConnectPanel({ connection, onConnectionChange }) {
 
     return (
       <ul className="space-y-2">
-        {accounts.map((account) => (
-          <li
-            key={account.address}
-            className="flex items-center justify-between border border-gray-200 rounded-lg px-3 py-2"
-          >
-            <div className="flex flex-col">
-              <span className="font-mono text-sm text-gray-900">
-                {account.address}
-              </span>
-              <span className="text-xs text-gray-500">on {account.chain} </span>
-            </div>
-            <span className="text-xs text-gray-500">{account.balance} €</span>
-            {connection?.accountAddress === account.address ? (
-              <span className="text-xs font-semibold text-green-600">
-                Selected
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => handleSelectAccount(account)}
-                className="text-sm text-blue-600 hover:text-blue-700"
-              >
-                Use this account
-              </button>
-            )}
-          </li>
-        ))}
+        {accounts.map((account) => {
+          const isSelected = connection?.accountAddress === account.address;
+          return (
+            <li
+              key={account.address}
+              onClick={() => !isSelected && handleSelectAccount(account)}
+              className={`flex items-center justify-between rounded-lg px-4 py-3 transition-colors ${
+                isSelected
+                  ? "bg-blue-50 border-2 border-blue-300"
+                  : "border border-gray-200 hover:border-blue-200 hover:bg-gray-50 cursor-pointer"
+              }`}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isSelected ? "bg-blue-500" : "bg-gray-300"}`} />
+                <div className="min-w-0">
+                  <CopyableAddress address={account.address} chain={account.chain} />
+                  <span className="text-xs text-gray-400 ml-2">{account.chain}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <span className="text-sm font-medium text-gray-700">{account.balance} &euro;</span>
+                {isSelected && (
+                  <span className="text-xs font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                    Selected
+                  </span>
+                )}
+              </div>
+            </li>
+          );
+        })}
       </ul>
     );
   };
 
+  // When embedded in onboarding, skip the outer container
+  const Wrapper = embedded ? "div" : ({ children }) => (
+    <div className="bg-white rounded-lg shadow-md p-6 mb-6">{children}</div>
+  );
+
   return (
-    <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold mb-1">💳 Monerium Connection</h2>
-          <p className="text-sm text-gray-600">
-            {configLoading
-              ? "Loading configuration…"
-              : `Environment: ${
-                  environment === "production" ? "Production" : "Sandbox"
-                }`}
-          </p>
+    <Wrapper>
+      {!embedded && (
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h2 className="text-lg font-semibold">Monerium Connection</h2>
+            <p className="text-sm text-gray-600">
+              {configLoading
+                ? "Loading configuration..."
+                : `Environment: ${
+                    environment === "production" ? "Production" : "Sandbox"
+                  }`}
+            </p>
+          </div>
+          {connection?.accessToken && (
+            <button
+              type="button"
+              onClick={handleDisconnect}
+              className="px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+            >
+              Disconnect
+            </button>
+          )}
         </div>
-        {connection?.accessToken && (
-          <button
-            type="button"
-            onClick={handleDisconnect}
-            className="px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
-          >
-            Disconnect
-          </button>
-        )}
-      </div>
+      )}
 
       {configError && (
-        <div className="mt-4 p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded">
+        <div className="p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded mb-4">
           {configError}
         </div>
       )}
 
       {!connection?.accessToken && (
-        <div className="mt-4 space-y-4">
-          <p className="text-sm text-gray-600">
-            Connect your Monerium account to enable automated invoice payments.
-            You&apos;ll be redirected to Monerium to authorize access.
-          </p>
+        <div className="space-y-4">
+          {!embedded && (
+            <p className="text-sm text-gray-600">
+              Connect your Monerium account to enable automated invoice payments.
+            </p>
+          )}
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded">
               {error}
@@ -424,53 +472,53 @@ export function MoneriumConnectPanel({ connection, onConnectionChange }) {
             type="button"
             onClick={handleConnect}
             disabled={loading || configLoading || !clientId}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white text-sm font-semibold rounded-lg transition-colors"
+            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium rounded-lg transition-colors"
           >
             {loading ? "Connecting..." : "Connect with Monerium"}
           </button>
         </div>
       )}
 
-      {connection?.accessToken && (
-        <div className="mt-4 space-y-4">
-          <div className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+      {connection?.accessToken && !connection.accountAddress && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-600">
+              Select which account should fund payments.
+            </p>
             <button
               type="button"
-              onClick={() => {
-                window.history.pushState({}, "", "/monerium");
-                window.dispatchEvent(new PopStateEvent("popstate"));
-              }}
-              className="text-green-800 hover:text-green-900 underline font-medium"
+              onClick={fetchAddresses}
+              className="text-xs text-blue-600 hover:text-blue-700"
             >
-              Connected to Monerium
+              Refresh
             </button>
-            . Select which account should fund payments.
           </div>
-          {!connection.accountAddress && (
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-gray-700">
-                Available accounts
-              </h3>
-              <button
-                type="button"
-                onClick={fetchAddresses}
-                className="text-xs text-blue-600 hover:text-blue-700"
-              >
-                Refresh
-              </button>
-            </div>
-          )}
           {renderAccounts()}
-          {connection.accountAddress && (
-            <div className="text-sm text-gray-700">
-              Payments will use account{" "}
-              <span className="font-mono text-xs">
-                {connection.accountAddress}
-              </span>
-            </div>
-          )}
         </div>
       )}
-    </div>
+
+      {connection?.accessToken && connection.accountAddress && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-gray-700">
+              Using account{" "}
+              <CopyableAddress
+                address={connection.accountAddress}
+                chain={connection.accountChain || "gnosis"}
+              />
+            </div>
+            {embedded && (
+              <button
+                type="button"
+                onClick={handleDisconnect}
+                className="text-xs text-red-500 hover:text-red-700"
+              >
+                Disconnect
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </Wrapper>
   );
 }

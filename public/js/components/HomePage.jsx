@@ -190,17 +190,13 @@ function MoneriumSetupStep({ onComplete }) {
       </h2>
       <p className="text-sm text-gray-600 mb-6">
         Link your Monerium account to pay invoices with EURe on Gnosis chain.
-        {connection?.accessToken && !connection?.accountAddress && (
-          <span className="block mt-2 font-medium text-blue-700">
-            Connected! Now select the account to use for payments below.
-          </span>
-        )}
       </p>
       <MoneriumConnectPanel
         connection={connection}
         onConnectionChange={(next) => {
           setConnection(next ?? loadMoneriumConnectionState());
         }}
+        embedded
       />
     </div>
   );
