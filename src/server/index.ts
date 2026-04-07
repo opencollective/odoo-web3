@@ -25,7 +25,7 @@ import { handleMarkPaidRequest } from "./api/opencollective/markPaid.ts";
 import { handleTestConnectionRequest } from "./api/opencollective/test.ts";
 import { handleFileProxyRequest } from "./api/opencollective/file.ts";
 import { handleCollectivesRequest } from "./api/opencollective/collectives.ts";
-import { handleUnlockRequest, handleUnlockStatusRequest, handleLockRequest } from "./api/unlock.ts";
+import { handleUnlockRequest, handleUnlockStatusRequest, handleLockRequest, handleVerifyPassphraseRequest } from "./api/unlock.ts";
 import { needsUnlock } from "../lib/keystore.ts";
 import { transform } from "@swc/core";
 
@@ -64,6 +64,9 @@ async function handleRequest(req: Request): Promise<Response> {
   }
   if (url.pathname === "/api/lock" && req.method === "POST") {
     return handleLockRequest(req);
+  }
+  if (url.pathname === "/api/unlock/verify" && req.method === "POST") {
+    return handleVerifyPassphraseRequest(req);
   }
 
   // API endpoints

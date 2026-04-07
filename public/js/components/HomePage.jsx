@@ -27,7 +27,10 @@ function getSetupState() {
   // Step 3: Account selected
   const accountSelected = Boolean(monerium?.accountAddress);
 
-  return { odooConfigured, moneriumConnected, accountSelected, monerium };
+  // Keystore verification (persisted per environment)
+  const keystoreVerified = localStorage.getItem(getStorageKey("keystore_verified")) === "true";
+
+  return { odooConfigured, moneriumConnected, accountSelected, monerium, keystoreVerified };
 }
 
 function OdooSetupStep({ onComplete }) {
@@ -199,6 +202,106 @@ function MoneriumSetupStep({ onComplete }) {
           setConnection(next ?? loadMoneriumConnectionState());
         }}
       />
+    </div>
+  );
+}
+
+function KeystoreSetupStep({ onComplete, onSkip }) {
+  const [passphrase, setPassphrase] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const handleVerify = async () => {
+    if (!passphrase) return;
+    setVerifying(true);
+    setResult(null);
+    try {
+      const response = await fetch("/api/unlock/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ passphrase }),
+      });
+      const data = await response.json();
+      if (data.ok) {
+        setResult({ success: true, address: data.address });
+        localStorage.setItem(getStorageKey("keystore_verified"), "true");
+        // Auto-advance after a short delay so the user sees the success
+        setTimeout(() => onComplete(), 1500);
+      } else {
+        setResult({ success: false, message: data.error || "Verification failed" });
+      }
+    } catch (err) {
+      setResult({ success: false, message: err.message || "Connection failed" });
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && passphrase && !verifying) {
+      handleVerify();
+    }
+  };
+
+  return (
+    <div>
+      <h2 className="text-xl font-semibold text-gray-900 mb-2">
+        Unlock Signing Key
+      </h2>
+      <p className="text-sm text-gray-600 mb-6">
+        Your server has an encrypted private key for signing transactions.
+        Enter the passphrase to verify it works. The key will be locked again
+        after verification — you'll unlock it when you need to sign.
+      </p>
+      <div className="mb-4">
+        <label className="block text-xs font-medium text-gray-600 mb-1">
+          Passphrase
+        </label>
+        <input
+          type="password"
+          placeholder="Enter your passphrase"
+          value={passphrase}
+          onChange={(e) => setPassphrase(e.target.value)}
+          onKeyDown={handleKeyDown}
+          autoFocus
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        />
+      </div>
+      {result && (
+        <div
+          className={`mb-4 p-3 rounded text-sm ${
+            result.success
+              ? "bg-green-50 border border-green-200 text-green-800"
+              : "bg-red-50 border border-red-200 text-red-700"
+          }`}
+        >
+          {result.success ? (
+            <span>
+              Passphrase verified. Wallet address:{" "}
+              <code className="text-xs bg-green-100 px-1 py-0.5 rounded">
+                {result.address}
+              </code>
+            </span>
+          ) : (
+            result.message
+          )}
+        </div>
+      )}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleVerify}
+          disabled={!passphrase || verifying}
+          className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+        >
+          {verifying ? "Verifying..." : "Verify & Continue"}
+        </button>
+        <button
+          onClick={onSkip}
+          className="px-4 py-2.5 text-sm text-gray-500 hover:text-gray-700"
+        >
+          Skip — use WalletConnect instead
+        </button>
+      </div>
     </div>
   );
 }
@@ -443,8 +546,23 @@ function StepIndicator({ currentStep, steps }) {
 export function HomePage({ navigate }) {
   const [setup, setSetup] = useState(getSetupState);
   const [step, setStep] = useState(null);
+  // Whether server has PRIVATE_KEY_ENCRYPTED (fetched once on mount)
+  const [hasEncryptedKey, setHasEncryptedKey] = useState(false);
+
+  // Check if server needs keystore unlock
+  useEffect(() => {
+    fetch("/api/unlock")
+      .then((r) => r.json())
+      .then((data) => {
+        // needsUnlock means PRIVATE_KEY_ENCRYPTED is set but not yet decrypted
+        // If it's already unlocked, it also means there's an encrypted key configured
+        setHasEncryptedKey(data.needsUnlock || !data.locked);
+      })
+      .catch(() => {});
+  }, []);
 
   // Determine current step from setup state
+  // Steps: 1=Odoo, 2=Monerium, 3=Keystore (if applicable), last=Ready
   useEffect(() => {
     const s = getSetupState();
     setSetup(s);
@@ -452,14 +570,24 @@ export function HomePage({ navigate }) {
       setStep(1);
     } else if (!s.moneriumConnected || !s.accountSelected) {
       setStep(2);
+    } else if (hasEncryptedKey && !s.keystoreVerified) {
+      setStep(3);
     } else {
-      setStep(3); // all done
+      setStep("done");
     }
-  }, []);
+  }, [hasEncryptedKey]);
 
-  const isFullySetup = setup.odooConfigured && setup.moneriumConnected && setup.accountSelected;
+  const stepLabels = hasEncryptedKey
+    ? ["Odoo", "Monerium", "Signing Key", "Ready"]
+    : ["Odoo", "Monerium", "Ready"];
 
-  if (isFullySetup && step === 3) {
+  const doneStep = hasEncryptedKey ? 4 : 3;
+  const currentStepNum =
+    step === "done" ? doneStep : step;
+
+  const isFullySetup = step === "done";
+
+  if (isFullySetup) {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="max-w-4xl mx-auto px-4 py-16">
@@ -482,8 +610,8 @@ export function HomePage({ navigate }) {
         </div>
 
         <StepIndicator
-          currentStep={step || 1}
-          steps={["Odoo", "Monerium", "Ready"]}
+          currentStep={currentStepNum || 1}
+          steps={stepLabels}
         />
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
@@ -498,8 +626,24 @@ export function HomePage({ navigate }) {
           {step === 2 && (
             <MoneriumSetupStep
               onComplete={() => {
-                setSetup(getSetupState());
-                setStep(3);
+                const s = getSetupState();
+                setSetup(s);
+                if (hasEncryptedKey && !s.keystoreVerified) {
+                  setStep(3);
+                } else {
+                  setStep("done");
+                }
+              }}
+            />
+          )}
+          {step === 3 && (
+            <KeystoreSetupStep
+              onComplete={() => {
+                setSetup((prev) => ({ ...prev, keystoreVerified: true }));
+                setStep("done");
+              }}
+              onSkip={() => {
+                setStep("done");
               }}
             />
           )}
