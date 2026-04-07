@@ -383,9 +383,13 @@ export function MoneriumConnectPanel({ connection, onConnectionChange, embedded 
       );
     }
 
+    const sorted = [...accounts].sort(
+      (a, b) => parseFloat(b.balance || 0) - parseFloat(a.balance || 0)
+    );
+
     return (
       <ul className="space-y-2">
-        {accounts.map((account) => {
+        {sorted.map((account) => {
           const isSelected = connection?.accountAddress === account.address;
           return (
             <li
@@ -405,7 +409,9 @@ export function MoneriumConnectPanel({ connection, onConnectionChange, embedded 
                 </div>
               </div>
               <div className="flex items-center gap-3 flex-shrink-0">
-                <span className="text-sm font-medium text-gray-700">{account.balance} &euro;</span>
+                <span className="text-sm font-medium text-gray-700">
+                  {new Intl.NumberFormat("en", { style: "currency", currency: "EUR" }).format(parseFloat(account.balance || 0))}
+                </span>
                 {isSelected && (
                   <span className="text-xs font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
                     Selected
