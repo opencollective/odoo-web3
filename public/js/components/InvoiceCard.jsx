@@ -1,5 +1,6 @@
 import { isInvoicePaid, markInvoiceAsPaid, getSelectedMoneriumAccount, setSelectedMoneriumAccount } from "../utils/storage.js";
 import { getStorageKey } from "../config.js";
+import { KeyLockedError, unlockServer } from "../services/monerium.js";
 import {
   IncomingIcon,
   OutgoingIcon,
@@ -96,6 +97,9 @@ export function InvoiceCard({
   const [paySuccess, setPaySuccess] = useState(null);
   const [showPayModal, setShowPayModal] = useState(false);
   const [needsReconnect, setNeedsReconnect] = useState(false);
+  const [needsPassphrase, setNeedsPassphrase] = useState(false);
+  const [passphrase, setPassphrase] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
   const [selectedAccountAddress, setSelectedAccountAddress] = useState("");
   const [isPaidLocally, setIsPaidLocally] = useState(false);
   const [addressValidationError, setAddressValidationError] = useState(null);
@@ -200,6 +204,25 @@ export function InvoiceCard({
     setShowPayModal(false);
     setPayError(null);
     setNeedsReconnect(false);
+    setNeedsPassphrase(false);
+    setPassphrase("");
+  };
+
+  const handleUnlockAndRetry = async () => {
+    if (!passphrase) return;
+    setUnlocking(true);
+    setPayError(null);
+    try {
+      await unlockServer(passphrase);
+      setNeedsPassphrase(false);
+      setPassphrase("");
+      // Retry the payment
+      await handleConfirmPay();
+    } catch (err) {
+      setPayError(err.message || "Failed to unlock");
+    } finally {
+      setUnlocking(false);
+    }
   };
 
   const handleMarkAsPaid = () => {
@@ -286,9 +309,14 @@ export function InvoiceCard({
       setNeedsReconnect(false);
     } catch (err) {
       console.error("❌ Payment failed:", err.message || err);
-      setPayError(err.message || "Failed to initiate payment");
-      if (err && typeof err === "object" && err.status === 401) {
-        setNeedsReconnect(true);
+      if (err instanceof KeyLockedError) {
+        setNeedsPassphrase(true);
+        setPayError(null);
+      } else {
+        setPayError(err.message || "Failed to initiate payment");
+        if (err && typeof err === "object" && err.status === 401) {
+          setNeedsReconnect(true);
+        }
       }
     } finally {
       setPaying(false);
@@ -764,6 +792,34 @@ export function InvoiceCard({
                   >
                     Mark as paid
                   </button>
+                </div>
+              )}
+              {needsPassphrase && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-3 space-y-2">
+                  <p className="text-xs text-amber-800 font-medium">
+                    Server signing key is locked. Enter the passphrase to unlock.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      placeholder="Passphrase"
+                      value={passphrase}
+                      onChange={(e) => setPassphrase(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && passphrase && !unlocking) handleUnlockAndRetry();
+                      }}
+                      autoFocus
+                      className="flex-1 px-3 py-1.5 text-sm border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleUnlockAndRetry}
+                      disabled={!passphrase || unlocking}
+                      className="px-4 py-1.5 text-sm bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 text-white font-medium rounded-lg transition-colors"
+                    >
+                      {unlocking ? "Unlocking..." : "Unlock & Pay"}
+                    </button>
+                  </div>
                 </div>
               )}
               {needsReconnect && (

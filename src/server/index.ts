@@ -29,7 +29,7 @@ import { handleUnlockRequest, handleUnlockStatusRequest, handleLockRequest, hand
 import { needsUnlock } from "../lib/keystore.ts";
 import { transform } from "@swc/core";
 
-const PORT = 8000;
+const PORT = parseInt(process.env.PORT || "8000", 10);
 const ENV = process.env.ENV === "production" ? "production" : "sandbox";
 
 const corsHeaders = {

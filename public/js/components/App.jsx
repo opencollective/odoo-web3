@@ -56,7 +56,7 @@ export function App() {
       until: params.get("until") || "",
       incoming: params.has("incoming") ? params.get("incoming") === "true" : true,
       outgoing: params.has("outgoing") ? params.get("outgoing") === "true" : false,
-      status: params.get("status") || "all",
+      status: params.get("status") || "ready_to_pay",
     };
   });
   const [filtersExpanded, setFiltersExpanded] = useState(() => {

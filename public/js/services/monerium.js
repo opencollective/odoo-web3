@@ -2,6 +2,26 @@ import { getStorageKey, ENV } from "../config.js";
 import { isInvoicePaid, markInvoiceAsPaid } from "../utils/storage.js";
 
 // Monerium payment service
+// Custom error class for when the signing key needs unlocking
+export class KeyLockedError extends Error {
+  constructor() {
+    super("Server signing key is locked.");
+    this.name = "KeyLockedError";
+  }
+}
+
+export const unlockServer = async (passphrase) => {
+  const resp = await fetch("/api/unlock", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ passphrase }),
+  });
+  if (!resp.ok) {
+    const data = await resp.json();
+    throw new Error(data.error || "Wrong passphrase");
+  }
+};
+
 export const handlePay = async (
   invoice,
   memo,
@@ -153,32 +173,9 @@ export const handlePay = async (
     body: JSON.stringify(orderPayload),
   });
 
-  // If the server signing key is locked, prompt for passphrase and retry
+  // If the server signing key is locked, throw so the UI can prompt for passphrase
   if (response.status === 423) {
-    const passphrase = prompt(
-      "Server signing key is locked. Enter the passphrase to unlock:"
-    );
-    if (!passphrase) {
-      throw new Error("Signing key is locked and no passphrase was provided.");
-    }
-
-    const unlockResp = await fetch("/api/unlock", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ passphrase }),
-    });
-
-    if (!unlockResp.ok) {
-      const unlockData = await unlockResp.json();
-      throw new Error(unlockData.error || "Failed to unlock signing key.");
-    }
-
-    // Retry the order
-    response = await fetch("/api/monerium/order", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(orderPayload),
-    });
+    throw new KeyLockedError();
   }
 
   const data = await response.json();
