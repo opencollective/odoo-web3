@@ -5,10 +5,10 @@ import { MoneriumClient } from "../../../lib/monerium.ts";
 import type { Address } from "viem";
 
 const ENV =
-  Deno.env.get("ENV") === "production" ? "production" : "sandbox";
+  process.env.ENV === "production" ? "production" : "sandbox";
 
-const MONERIUM_CLIENT_ID = Deno.env.get("MONERIUM_CLIENT_ID") || "";
-const MONERIUM_CLIENT_SECRET = Deno.env.get("MONERIUM_CLIENT_SECRET") || "";
+const MONERIUM_CLIENT_ID = process.env.MONERIUM_CLIENT_ID || "";
+const MONERIUM_CLIENT_SECRET = process.env.MONERIUM_CLIENT_SECRET || "";
 
 const CHAIN_IDS: Record<string, number> = {
   gnosis: 100,
@@ -36,13 +36,13 @@ export async function handleSyncRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
   const odooUrl =
-    url.searchParams.get("url") || Deno.env.get("ODOO_URL") || "";
+    url.searchParams.get("url") || process.env.ODOO_URL || "";
   const database =
-    url.searchParams.get("db") || Deno.env.get("ODOO_DATABASE") || "";
+    url.searchParams.get("db") || process.env.ODOO_DATABASE || "";
   const username =
-    url.searchParams.get("username") || Deno.env.get("ODOO_USERNAME") || "";
+    url.searchParams.get("username") || process.env.ODOO_USERNAME || "";
   const password =
-    url.searchParams.get("password") || Deno.env.get("ODOO_PASSWORD") || "";
+    url.searchParams.get("password") || process.env.ODOO_PASSWORD || "";
 
   if (!odooUrl || !database) {
     return new Response(
@@ -153,6 +153,7 @@ export async function handleSyncRequest(req: Request): Promise<Response> {
         }
 
         const isDryRun = body.dryRun || false;
+        const forceReconcile = body.forceReconcile !== false; // default true
 
         send({
           type: "status",
@@ -226,16 +227,48 @@ export async function handleSyncRequest(req: Request): Promise<Response> {
           });
 
           if (newTransfers.length === 0) {
-            // No new transfers at all — verify balance matches
-            const onChainBal = parseFloat(balance);
-            // The Odoo balance only reflects tracked transfers (not pre-existing balance)
-            // so we can't directly compare. But if no new transfers, we're up to date.
             send({
               type: "status",
               message: `Already up to date — no new transfers since block ${latestBlock}. Wallet balance: ${balance} EURe, Odoo: ${initialCounts.statementLines} lines.`,
             });
             totalOnChain = initialCounts.statementLines;
             result = { synced: 0, skipped: 0 };
+
+            // Still run reconciliation — there may be unreconciled lines from previous syncs
+            // Only check recent lines (last 30 days) since no new txs were synced
+            send({ type: "status", message: "Reconciling recent statement lines with invoices..." });
+            const reconcileResult = await odooClient.reconcileJournalLines(
+              journal.id,
+              (progress) => {
+                send({ type: "reconcile-progress", ...progress });
+              },
+              isDryRun,
+              forceReconcile,
+              30
+            );
+
+            const counts = await odooClient.countJournalEntries(journal.id);
+            send({
+              type: "done",
+              dryRun: isDryRun,
+              synced: 0,
+              skipped: 0,
+              moneriumRan: false,
+              moneriumEnriched: 0,
+              moneriumSkipped: 0,
+              moneriumNewPartners: 0,
+              moneriumMatchedPartners: 0,
+              moneriumReconciled: 0,
+              reconciled: reconcileResult.reconciled,
+              reconciledTotal: reconcileResult.total,
+              totalMoves: counts.moves,
+              totalStatementLines: counts.statementLines,
+              journal: { id: journal.id, name: journal.name },
+              balance,
+              totalOnChain,
+            });
+            controller.close();
+            return;
           } else {
             send({
               type: "status",
@@ -264,12 +297,42 @@ export async function handleSyncRequest(req: Request): Promise<Response> {
               message: `Incremental sync done: ${result.synced} synced, ${result.skipped} skipped. Wallet balance: ${balance} EURe.`,
             });
 
-            // If the Odoo balance changed unexpectedly, suggest full sync
-            if (result.synced === 0 && newTransfers.length > 0) {
+            // No new transactions were actually synced — still run reconciliation
+            // Only check recent lines (last 30 days) since no new txs were synced
+            if (result.synced === 0) {
+              send({ type: "status", message: "Reconciling recent statement lines with invoices..." });
+              const reconcileResult = await odooClient.reconcileJournalLines(
+                journal.id,
+                (progress) => {
+                  send({ type: "reconcile-progress", ...progress });
+                },
+                isDryRun,
+                forceReconcile,
+                30
+              );
+
+              const counts = await odooClient.countJournalEntries(journal.id);
               send({
-                type: "status",
-                message: `Warning: ${newTransfers.length} transfers fetched but none were new. If data looks off, try a full sync with "Force re-sync".`,
+                type: "done",
+                dryRun: isDryRun,
+                synced: 0,
+                skipped: result.skipped,
+                moneriumRan: false,
+                moneriumEnriched: 0,
+                moneriumSkipped: 0,
+                moneriumNewPartners: 0,
+                moneriumMatchedPartners: 0,
+                moneriumReconciled: 0,
+                reconciled: reconcileResult.reconciled,
+                reconciledTotal: reconcileResult.total,
+                totalMoves: counts.moves,
+                totalStatementLines: counts.statementLines,
+                journal: { id: journal.id, name: journal.name },
+                balance,
+                totalOnChain,
               });
+              controller.close();
+              return;
             }
           }
         } else {
@@ -338,7 +401,6 @@ export async function handleSyncRequest(req: Request): Promise<Response> {
         }
 
         // Step 2: Optionally enrich with Monerium metadata
-        const forceReconcile = body.forceReconcile !== false; // default true
         let moneriumResult: { enriched: number; skipped: number; newPartners: number; matchedPartners: number; reconciled: number } | null = null;
 
         const mClientId = body.moneriumClientId || MONERIUM_CLIENT_ID;
@@ -374,7 +436,7 @@ export async function handleSyncRequest(req: Request): Promise<Response> {
                 message: "Fetching Monerium orders...",
               });
 
-              const ordersByTxHash = await monerium.getOrdersByTxHash(address);
+              const ordersByTxHash = await monerium.getOrdersByTxHash(address, true);
 
               send({
                 type: "status",

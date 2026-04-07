@@ -1,11 +1,11 @@
-import { expect } from "@std/expect";
+import { test, expect } from "bun:test";
 
 import { signMessage } from "../src/lib/safe.ts";
 
-Deno.test("signMessage signs message with Safe", async () => {
-  const privateKey = Deno.env.get("PRIVATE_KEY");
+test("signMessage signs message with Safe", async () => {
+  const privateKey = process.env.PRIVATE_KEY;
   const safeAddress =
-    Deno.env.get("SAFE_ADDRESS") ||
+    process.env.SAFE_ADDRESS ||
     "0xaF64295dc6BDD7eA310465AdB0f8Ac99Ae0Fe0C4";
 
   if (!privateKey || !safeAddress) {

@@ -1,7 +1,7 @@
 /**
  * Monerium API client for fetching order metadata.
  */
-import { readCache, writeCache } from "./cache.ts";
+import { deleteCache, readCache, writeCache } from "./cache.ts";
 
 export interface MoneriumOrder {
   id: string;
@@ -126,12 +126,16 @@ export class MoneriumClient {
   /**
    * Fetch all orders for a given address.
    */
-  async getOrders(address: string): Promise<MoneriumOrder[]> {
+  async getOrders(address: string, skipCache = false): Promise<MoneriumOrder[]> {
     const cacheKey = `monerium-orders-${this.environment}-${address.toLowerCase()}`;
-    const cached = await readCache<MoneriumOrder[]>(cacheKey);
-    if (cached) {
-      console.log(`[cache] Using cached Monerium orders (${cached.length} entries) for ${address}`);
-      return cached;
+    if (skipCache) {
+      await deleteCache(cacheKey);
+    } else {
+      const cached = await readCache<MoneriumOrder[]>(cacheKey);
+      if (cached) {
+        console.log(`[cache] Using cached Monerium orders (${cached.length} entries) for ${address}`);
+        return cached;
+      }
     }
 
     if (!this.accessToken) throw new Error("Not authenticated");
@@ -160,9 +164,10 @@ export class MoneriumClient {
    * Build a map from tx hash → order for quick lookup.
    */
   async getOrdersByTxHash(
-    address: string
+    address: string,
+    skipCache = false
   ): Promise<Map<string, MoneriumOrder>> {
-    const orders = await this.getOrders(address);
+    const orders = await this.getOrders(address, skipCache);
     const map = new Map<string, MoneriumOrder>();
 
     for (const order of orders) {

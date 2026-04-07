@@ -2,11 +2,11 @@ import { createPublicClient, http, type Address } from "viem";
 import { gnosis, gnosisChiado } from "viem/chains";
 import { formatTokenAmount } from "../../../lib/blockchain.ts";
 
-export const MONERIUM_CLIENT_ID = Deno.env.get("MONERIUM_CLIENT_ID") || "";
+export const MONERIUM_CLIENT_ID = process.env.MONERIUM_CLIENT_ID || "";
 export const MONERIUM_CLIENT_SECRET =
-  Deno.env.get("MONERIUM_CLIENT_SECRET") || "";
+  process.env.MONERIUM_CLIENT_SECRET || "";
 export const ENV =
-  Deno.env.get("ENV") === "production" ? "production" : "sandbox";
+  process.env.ENV === "production" ? "production" : "sandbox";
 
 export function normalizeIban(iban: string): string {
   return iban.toUpperCase().replace(/\s/g, "");

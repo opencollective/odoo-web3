@@ -68,6 +68,8 @@ export function BillsStats({
     ? parseFloat(selectedAccount.balance || "0")
     : null;
 
+  const [notSynced, setNotSynced] = useState(null);
+
   const linkedJournal = currentAddress ? journalMap[currentAddress] || null : null;
 
   const handleJournalChange = useCallback(
@@ -242,6 +244,28 @@ export function BillsStats({
     }
   }, []);
 
+  // Fetch sync status when journal is linked
+  useEffect(() => {
+    if (!currentAddress || !linkedJournal) return;
+    let cancelled = false;
+    const checkStatus = async () => {
+      try {
+        const params = getOdooParams();
+        if (!params) return;
+        params.append("address", currentAddress);
+        const resp = await fetch(`/api/odoo/sync-status?${params.toString()}`);
+        const data = await resp.json();
+        if (!cancelled && resp.ok) {
+          setNotSynced(data.notSynced);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    checkStatus();
+    return () => { cancelled = true; };
+  }, [currentAddress, linkedJournal]);
+
   const handleSync = useCallback(async () => {
     if (!currentAddress || !linkedJournal) return;
 
@@ -299,12 +323,15 @@ export function BillsStats({
         if (finalResult.moneriumEnriched > 0) {
           parts.push(`${finalResult.moneriumEnriched} enriched`);
         }
-        if (finalResult.moneriumReconciled > 0) {
-          parts.push(`${finalResult.moneriumReconciled} reconciled`);
+        if (finalResult.moneriumReconciled > 0 || finalResult.reconciled > 0) {
+          const total = (finalResult.moneriumReconciled || 0) + (finalResult.reconciled || 0);
+          parts.push(`${total} reconciled`);
         }
         setSyncStatus(parts.length > 0 ? parts.join(", ") : "Already up to date");
+        setNotSynced(0);
       } else {
         setSyncStatus("Already up to date");
+        setNotSynced(0);
       }
     } catch (err) {
       setSyncStatus(`Error: ${err.message}`);
@@ -396,6 +423,11 @@ export function BillsStats({
                   </svg>
                   {syncing ? "Syncing..." : "Sync"}
                 </button>
+                {notSynced > 0 && !syncing && !syncStatus && (
+                  <span className="text-xs text-orange-600 font-medium">
+                    {notSynced} not synced
+                  </span>
+                )}
                 {syncStatus && (
                   <span
                     className={`text-xs ${

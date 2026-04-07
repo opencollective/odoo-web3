@@ -150,7 +150,7 @@ export async function handleBatchOrder(req: Request): Promise<Response> {
       batchSignature = providedSignature;
     } else {
       // Sign with server private key or Safe
-      let privateKey = Deno.env.get("PRIVATE_KEY");
+      let privateKey = process.env.PRIVATE_KEY;
       if (!privateKey) {
         return new Response(
           JSON.stringify({

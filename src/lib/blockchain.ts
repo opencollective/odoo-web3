@@ -1,6 +1,7 @@
 import type { Address, Chain } from "viem";
 import { createPublicClient, http } from "viem";
 import { gnosis, mainnet } from "viem/chains";
+import { mkdir } from "fs/promises";
 
 /**
  * ERC20 token ABI for reading metadata
@@ -55,7 +56,7 @@ async function readFromCache(
 ): Promise<TokenInfo | null> {
   try {
     const cacheFile = getCacheFilePath(chainId, tokenAddress);
-    const data = await Deno.readTextFile(cacheFile);
+    const data = await Bun.file(cacheFile).text();
     const cached = JSON.parse(data) as TokenInfo;
     console.log(`✅ Retrieved from cache: ${cached.symbol}`);
     return cached;
@@ -79,10 +80,10 @@ async function writeToCache(
 ): Promise<void> {
   try {
     // Ensure cache directory exists
-    await Deno.mkdir("cache", { recursive: true });
+    await mkdir("cache", { recursive: true });
 
     const cacheFile = getCacheFilePath(chainId, tokenAddress);
-    await Deno.writeTextFile(cacheFile, JSON.stringify(tokenInfo, null, 2));
+    await Bun.write(cacheFile, JSON.stringify(tokenInfo, null, 2));
     console.log(`💾 Cached token info to ${cacheFile}`);
   } catch (error) {
     // Log error but don't fail if caching fails

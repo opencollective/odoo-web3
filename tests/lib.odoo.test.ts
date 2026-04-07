@@ -1,5 +1,4 @@
-import { assertEquals as _assertEquals } from "@std/assert";
-import { expect } from "@std/expect";
+import { test, expect } from "bun:test";
 import {
   OdooClient,
   OdooConfig,
@@ -18,23 +17,23 @@ import { formatUnits } from "viem/utils";
 // Helper to check if Odoo is configured
 function isOdooConfigured(): boolean {
   return !!(
-    Deno.env.get("ODOO_URL") &&
-    Deno.env.get("ODOO_DATABASE") &&
-    Deno.env.get("ODOO_USERNAME") &&
-    Deno.env.get("ODOO_PASSWORD")
+    process.env.ODOO_URL &&
+    process.env.ODOO_DATABASE &&
+    process.env.ODOO_USERNAME &&
+    process.env.ODOO_PASSWORD
   );
 }
 
 // Helper to check if Etherscan is configured
 function _isEtherscanConfigured(): boolean {
-  return !!Deno.env.get("ETHEREUM_ETHERSCAN_API_KEY");
+  return !!process.env.ETHEREUM_ETHERSCAN_API_KEY;
 }
 
 const chainId = 100; // Gnosis Chain
 const tokenAddress: Address = "0x420CA0f9B9b604cE0fd9C18EF134C705e5Fa3430"; // EURe token
 const walletAddress: Address = "0x6fDF0AaE33E313d9C98D2Aa19Bcd8EF777912CBf";
 
-Deno.test(
+test(
   "getExpenseReports - fetch expense reports with expenses + attachments",
   async () => {
     if (!isOdooConfigured()) {
@@ -43,10 +42,10 @@ Deno.test(
     }
 
     const config: OdooConfig = {
-      url: Deno.env.get("ODOO_URL") || "",
-      database: Deno.env.get("ODOO_DATABASE") || "",
-      username: Deno.env.get("ODOO_USERNAME") || "",
-      password: Deno.env.get("ODOO_PASSWORD") || "",
+      url: process.env.ODOO_URL || "",
+      database: process.env.ODOO_DATABASE || "",
+      username: process.env.ODOO_USERNAME || "",
+      password: process.env.ODOO_PASSWORD || "",
     };
 
     const odooClient = new OdooClient(config);
@@ -94,7 +93,7 @@ Deno.test(
   }
 );
 
-Deno.test("import txs", async () => {
+test("import txs", async () => {
   if (!isOdooConfigured()) {
     console.log("⏭️  Skipping: Odoo environment variables not configured");
     return;
@@ -372,7 +371,7 @@ Deno.test("import txs", async () => {
     }
   }
 
-  const dryRun = Deno.env.get("DRY_RUN") === "true";
+  const dryRun = process.env.DRY_RUN === "true";
 
   async function main() {
     const journalId = 55;
@@ -384,10 +383,10 @@ Deno.test("import txs", async () => {
 
     // Initialize OdooClient
     const config: OdooConfig = {
-      url: Deno.env.get("ODOO_URL") || "",
-      database: Deno.env.get("ODOO_DATABASE") || "",
-      username: Deno.env.get("ODOO_USERNAME") || "",
-      password: Deno.env.get("ODOO_PASSWORD") || "",
+      url: process.env.ODOO_URL || "",
+      database: process.env.ODOO_DATABASE || "",
+      username: process.env.ODOO_USERNAME || "",
+      password: process.env.ODOO_PASSWORD || "",
     };
 
     odooClient = new OdooClient(config, dryRun);
@@ -396,7 +395,7 @@ Deno.test("import txs", async () => {
     const authenticated = await odooClient.authenticate();
     if (!authenticated) {
       console.error("Authentication failed");
-      Deno.exit(1);
+      process.exit(1);
     }
 
     console.log("Authentication successful!");
@@ -420,7 +419,7 @@ Deno.test("import txs", async () => {
 
     if (!journals.length) {
       console.error(`Journal ${journalId} not found`);
-      Deno.exit(1);
+      process.exit(1);
     }
 
     const journal = journals[0];
@@ -439,7 +438,7 @@ Deno.test("import txs", async () => {
       console.error(
         `A bank journal must have a default liquidity account (the bank account in the chart of accounts)`
       );
-      Deno.exit(1);
+      process.exit(1);
     }
 
     // Verify that default_account_id and suspense_account_id are different
@@ -465,7 +464,7 @@ Deno.test("import txs", async () => {
       console.error(
         `Please configure the journal properly in Odoo before running this import`
       );
-      Deno.exit(1);
+      process.exit(1);
     }
 
     // Check the account type of the default account
@@ -529,7 +528,7 @@ Deno.test("import txs", async () => {
               `Find account ${suspenseAccount.code} - ${suspenseAccount.name}`
             );
             console.error(`Edit it and check the "Allow Reconciliation" box`);
-            Deno.exit(1);
+            process.exit(1);
           }
         }
       }
@@ -552,7 +551,7 @@ Deno.test("import txs", async () => {
 
     if (!receivableAccounts.length || !payableAccounts.length) {
       console.error("Could not find default receivable and payable accounts");
-      Deno.exit(1);
+      process.exit(1);
     }
 
     const defaultReceivableAccountId = receivableAccounts[0].id;

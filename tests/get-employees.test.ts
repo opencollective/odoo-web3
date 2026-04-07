@@ -1,17 +1,17 @@
-import { expect } from "@std/expect";
+import { test, expect } from "bun:test";
 import { OdooClient, OdooConfig, type Employee } from "../src/lib/odoo.ts";
 
 // Helper to check if Odoo is configured
 function isOdooConfigured(): boolean {
   return !!(
-    Deno.env.get("ODOO_URL") &&
-    Deno.env.get("ODOO_DATABASE") &&
-    Deno.env.get("ODOO_USERNAME") &&
-    Deno.env.get("ODOO_PASSWORD")
+    process.env.ODOO_URL &&
+    process.env.ODOO_DATABASE &&
+    process.env.ODOO_USERNAME &&
+    process.env.ODOO_PASSWORD
   );
 }
 
-Deno.test(
+test(
   "getEmployees - fetch all employees (with and without bank accounts)",
   async () => {
     if (!isOdooConfigured()) {
@@ -20,10 +20,10 @@ Deno.test(
     }
 
     const config: OdooConfig = {
-      url: Deno.env.get("ODOO_URL") || "",
-      database: Deno.env.get("ODOO_DATABASE") || "",
-      username: Deno.env.get("ODOO_USERNAME") || "",
-      password: Deno.env.get("ODOO_PASSWORD") || "",
+      url: process.env.ODOO_URL || "",
+      database: process.env.ODOO_DATABASE || "",
+      username: process.env.ODOO_USERNAME || "",
+      password: process.env.ODOO_PASSWORD || "",
     };
 
     console.log("🔐 Authenticating with Odoo...");
@@ -132,7 +132,7 @@ Deno.test(
   }
 );
 
-Deno.test(
+test(
   "getEmployees - handles Odoo instances without employees gracefully",
   async () => {
     if (!isOdooConfigured()) {
@@ -141,10 +141,10 @@ Deno.test(
     }
 
     const config: OdooConfig = {
-      url: Deno.env.get("ODOO_URL") || "",
-      database: Deno.env.get("ODOO_DATABASE") || "",
-      username: Deno.env.get("ODOO_USERNAME") || "",
-      password: Deno.env.get("ODOO_PASSWORD") || "",
+      url: process.env.ODOO_URL || "",
+      database: process.env.ODOO_DATABASE || "",
+      username: process.env.ODOO_USERNAME || "",
+      password: process.env.ODOO_PASSWORD || "",
     };
 
     const odooClient = new OdooClient(config);
@@ -169,17 +169,17 @@ Deno.test(
   }
 );
 
-Deno.test("getEmployees - authentication required", async () => {
+test("getEmployees - authentication required", async () => {
   if (!isOdooConfigured()) {
     console.log("⏭️  Skipping: Odoo environment variables not configured");
     return;
   }
 
   const config: OdooConfig = {
-    url: Deno.env.get("ODOO_URL") || "",
-    database: Deno.env.get("ODOO_DATABASE") || "",
-    username: Deno.env.get("ODOO_USERNAME") || "",
-    password: Deno.env.get("ODOO_PASSWORD") || "",
+    url: process.env.ODOO_URL || "",
+    database: process.env.ODOO_DATABASE || "",
+    username: process.env.ODOO_USERNAME || "",
+    password: process.env.ODOO_PASSWORD || "",
   };
 
   const odooClient = new OdooClient(config);

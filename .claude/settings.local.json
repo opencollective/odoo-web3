@@ -39,7 +39,25 @@
       "Bash(set -a && source /Users/xdamman/github/opencollective/odoo-web3/.env.test && set +a && deno eval \"\nimport { OdooClient } from './src/lib/odoo.ts';\nconst c = new OdooClient\\({ url: Deno.env.get\\('ODOO_URL'\\), database: Deno.env.get\\('ODOO_DATABASE'\\), username: Deno.env.get\\('ODOO_USERNAME'\\), password: Deno.env.get\\('ODOO_PASSWORD'\\) }\\);\nawait c.authenticate\\(\\);\nawait c.emptyJournal\\(44\\);\nconsole.log\\('After empty:', await c.countJournalEntries\\(44\\)\\);\n\" 2>&1)",
       "Bash(deno eval:*)",
       "Bash(ls cache/etherscan-balance-* 2>/dev/null || echo \"No balance cache files\")",
-      "Bash(deno run:*)"
+      "Bash(deno run:*)",
+      "Bash(find /home/xdamman/Github/opencollective/odoo-web3/public -name *.html -o -name *.jsx -o -name *.tsx)",
+      "Bash(python3 -c \":*)",
+      "Bash(kill %1)",
+      "Bash(pkill -f deno.*server)",
+      "Bash(pkill -f deno)",
+      "Read(//tmp/**)",
+      "Bash(rm -f cache/monerium-transactions-*.json)",
+      "Bash(python3 -c \"import json; d=json.load\\(open\\(''/tmp/tx_result.json''\\)\\); print\\(f''{len\\(d.get\\(\"\"transactions\"\",[]\\)\\)} txs, cachedAt={d.get\\(\"\"cachedAt\"\",\"\"NONE\"\"\\)}''\\)\")",
+      "Bash(ls -la cache/monerium-transactions-*.json)",
+      "Bash(grep:*)",
+      "Bash(bun install:*)",
+      "Bash(echo \"Remaining assertEquals/assertExists:\" grep -rn 'assertEquals\\\\|assertExists' tests/ main_test.ts --include=\"*.ts\")",
+      "Bash(bun:*)",
+      "Bash(npx tsc:*)",
+      "Bash(bunx tsc:*)",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); txs=data.get\\(''''transactions'''',[]\\); print\\(f''''Total: {len\\(txs\\)}''''\\); [print\\(json.dumps\\({k:v for k,v in t.items\\(\\) if k in \\(''''id'''',''''amount'''',''''kind'''',''''isReconciled'''',''''invoice'''',''''odooUrl'''',''''memo''''\\)}, indent=2\\)\\) for t in txs[:3]]\")",
+      "Bash(git status:*)",
+      "Bash(git add:*)"
     ]
   }
 }

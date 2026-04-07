@@ -559,6 +559,431 @@ export class OdooClient {
     }
   }
 
+  /**
+   * Get reconciliation data for bank statement lines, including linked invoice details.
+   * Returns txHash → invoice info map for reconciled lines.
+   */
+  async getReconciledInvoicesByTxHash(): Promise<Map<string, {
+    invoiceId: number;
+    invoiceName: string;
+    partnerName: string;
+    amountTotal: number;
+    pdfUrl: string | null;
+    attachments: Array<{ id: number; name: string; mimetype: string }>;
+  }>> {
+    if (!this.uid) {
+      throw new Error("Not authenticated. Call authenticate() first.");
+    }
+
+    // Step 1: Get all reconciled statement lines with their move_id
+    const lines = await this.callRPC("object", "execute_kw", [
+      this.config.database,
+      this.uid,
+      this.config.password,
+      "account.bank.statement.line",
+      "search_read",
+      [[["is_reconciled", "=", true]]],
+      { fields: ["id", "unique_import_id", "move_id"], limit: 5000 },
+    ]) as Array<{ id: number; unique_import_id: string | false; move_id: [number, string] | false }>;
+
+    // Build txHash → statementLine mapping
+    const txHashToLine = new Map<string, { lineId: number; moveId: number }>();
+    for (const line of lines) {
+      if (!line.unique_import_id || !line.move_id) continue;
+      const parts = line.unique_import_id.toLowerCase().split(":");
+      if (parts.length >= 3 && parts[2].startsWith("0x")) {
+        txHashToLine.set(parts[2], { lineId: line.id, moveId: line.move_id[0] });
+      }
+    }
+
+    if (txHashToLine.size === 0) return new Map();
+
+    // Step 2: Find reconciled payable/receivable move lines on statement moves
+    const stmtMoveIds = [...new Set([...txHashToLine.values()].map(v => v.moveId))];
+    const moveLines = await this.callRPC("object", "execute_kw", [
+      this.config.database,
+      this.uid,
+      this.config.password,
+      "account.move.line",
+      "search_read",
+      [[
+        ["move_id", "in", stmtMoveIds],
+        ["account_type", "in", ["asset_receivable", "liability_payable"]],
+        ["reconciled", "=", true],
+      ]],
+      { fields: ["move_id", "full_reconcile_id"] },
+    ]) as Array<{ move_id: [number, string]; full_reconcile_id: [number, string] | false }>;
+
+    // Map stmtMoveId → reconcile group ID
+    const moveToReconcileId = new Map<number, number>();
+    const reconcileIds: number[] = [];
+    for (const ml of moveLines) {
+      if (ml.full_reconcile_id) {
+        moveToReconcileId.set(ml.move_id[0], ml.full_reconcile_id[0]);
+        reconcileIds.push(ml.full_reconcile_id[0]);
+      }
+    }
+
+    if (reconcileIds.length === 0) return new Map();
+
+    // Step 3: Find the counterpart move lines in each reconciliation group
+    const counterpartLines = await this.callRPC("object", "execute_kw", [
+      this.config.database,
+      this.uid,
+      this.config.password,
+      "account.move.line",
+      "search_read",
+      [[
+        ["full_reconcile_id", "in", [...new Set(reconcileIds)]],
+        ["move_id", "not in", stmtMoveIds],
+      ]],
+      { fields: ["move_id", "full_reconcile_id"] },
+    ]) as Array<{ move_id: [number, string]; full_reconcile_id: [number, string] }>;
+
+    // Collect candidate move IDs (dedup)
+    const candidateMoveIds = [...new Set(counterpartLines.map(cl => cl.move_id[0]))];
+    if (candidateMoveIds.length === 0) return new Map();
+
+    // Step 4: Fetch invoice details — filter to actual invoices (in_invoice/out_invoice)
+    const invoices = await this.callRPC("object", "execute_kw", [
+      this.config.database,
+      this.uid,
+      this.config.password,
+      "account.move",
+      "search_read",
+      [[
+        ["id", "in", candidateMoveIds],
+        ["move_type", "in", ["in_invoice", "out_invoice"]],
+      ]],
+      { fields: ["id", "name", "partner_id", "amount_total"] },
+    ]) as Array<{ id: number; name: string; partner_id: [number, string] | false; amount_total: number }>;
+
+    const invoiceIdSet = new Set(invoices.map(inv => inv.id));
+
+    // Map reconcileId → invoiceId (only for actual invoices)
+    const reconcileToInvoiceId = new Map<number, number>();
+    for (const cl of counterpartLines) {
+      if (invoiceIdSet.has(cl.move_id[0])) {
+        reconcileToInvoiceId.set(cl.full_reconcile_id[0], cl.move_id[0]);
+      }
+    }
+
+    const invoiceMap = new Map(invoices.map(inv => [inv.id, inv]));
+
+    // Step 5: Fetch attachments for these invoices
+    const attachments = await this.callRPC("object", "execute_kw", [
+      this.config.database,
+      this.uid,
+      this.config.password,
+      "ir.attachment",
+      "search_read",
+      [[
+        ["res_model", "=", "account.move"],
+        ["res_id", "in", [...invoiceIdSet]],
+      ]],
+      { fields: ["id", "name", "mimetype", "res_id"] },
+    ]) as Array<{ id: number; name: string; mimetype: string; res_id: number }>;
+
+    // Group attachments by invoice
+    const attachmentsByInvoice = new Map<number, Array<{ id: number; name: string; mimetype: string }>>();
+    for (const att of attachments) {
+      if (!attachmentsByInvoice.has(att.res_id)) attachmentsByInvoice.set(att.res_id, []);
+      attachmentsByInvoice.get(att.res_id)!.push({ id: att.id, name: att.name, mimetype: att.mimetype });
+    }
+
+    // Step 6: Build the final txHash → invoice info map
+    const result = new Map<string, {
+      invoiceId: number;
+      invoiceName: string;
+      partnerName: string;
+      amountTotal: number;
+      pdfUrl: string | null;
+      attachments: Array<{ id: number; name: string; mimetype: string }>;
+    }>();
+
+    for (const [txHash, { moveId }] of txHashToLine) {
+      const reconcileId = moveToReconcileId.get(moveId);
+      if (!reconcileId) continue;
+      const invoiceId = reconcileToInvoiceId.get(reconcileId);
+      if (!invoiceId) continue;
+      const invoice = invoiceMap.get(invoiceId);
+      if (!invoice) continue;
+
+      const invAttachments = attachmentsByInvoice.get(invoiceId) || [];
+      const pdfAttachment = invAttachments.find(a => a.mimetype === "application/pdf");
+
+      result.set(txHash, {
+        invoiceId: invoice.id,
+        invoiceName: invoice.name,
+        partnerName: invoice.partner_id ? invoice.partner_id[1] : "",
+        amountTotal: invoice.amount_total,
+        pdfUrl: pdfAttachment
+          ? `${this.config.url}/web/content/${pdfAttachment.id}/${encodeURIComponent(pdfAttachment.name)}`
+          : null,
+        attachments: invAttachments,
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Get reconciliation status for bank statement lines.
+   * Returns two sets: reconciledImportIds (full unique_import_id) and reconciledTxHashes
+   * (extracted tx hashes from unique_import_ids in format chain:address:txHash:logIndex).
+   */
+  async getReconciledImportIds(): Promise<{ importIds: Set<string>; txHashes: Set<string> }> {
+    if (!this.uid) {
+      throw new Error("Not authenticated. Call authenticate() first.");
+    }
+
+    const result = await this.callRPC("object", "execute_kw", [
+      this.config.database,
+      this.uid,
+      this.config.password,
+      "account.bank.statement.line",
+      "search_read",
+      [[["is_reconciled", "=", true]]],
+      {
+        fields: ["unique_import_id"],
+        limit: 5000,
+      },
+    ]) as Array<{ unique_import_id: string | false }>;
+
+    const importIds = new Set<string>();
+    const txHashes = new Set<string>();
+    for (const line of result) {
+      if (line.unique_import_id) {
+        const uid = line.unique_import_id.toLowerCase();
+        importIds.add(uid);
+        // Extract tx hash from format: chain:address:txHash:logIndex
+        const parts = uid.split(":");
+        if (parts.length >= 3 && parts[2].startsWith("0x")) {
+          txHashes.add(parts[2]);
+        }
+      }
+    }
+    return { importIds, txHashes };
+  }
+
+  /**
+   * Find a bank statement line by its transaction hash.
+   * The unique_import_id format is chain:address:txHash:logIndex.
+   */
+  async findStatementLineByTxHash(
+    txHash: string
+  ): Promise<{ id: number; amount: number; payment_ref: string | false; partner_id: [number, string] | false; is_reconciled: boolean } | null> {
+    if (!this.uid) {
+      throw new Error("Not authenticated. Call authenticate() first.");
+    }
+
+    const result = await this.callRPC("object", "execute_kw", [
+      this.config.database,
+      this.uid,
+      this.config.password,
+      "account.bank.statement.line",
+      "search_read",
+      [[["unique_import_id", "ilike", txHash.toLowerCase()]]],
+      {
+        fields: ["id", "amount", "payment_ref", "partner_id", "is_reconciled"],
+        limit: 1,
+      },
+    ]) as Array<{
+      id: number;
+      amount: number;
+      payment_ref: string | false;
+      partner_id: [number, string] | false;
+      is_reconciled: boolean;
+    }>;
+
+    return result.length > 0 ? result[0] : null;
+  }
+
+  /**
+   * Find invoices matching a given amount and type.
+   * For received amounts (positive), search customer invoices (out_invoice).
+   * For sent amounts (negative), search vendor bills (in_invoice).
+   */
+  async findMatchingInvoicesByAmount(
+    amount: number,
+    iban?: string
+  ): Promise<Array<{
+    id: number;
+    name: string;
+    ref: string | false;
+    partner_id: [number, string] | false;
+    amount_total: number;
+    amount_residual: number;
+    payment_state: string;
+    date: string;
+    invoice_date: string;
+  }>> {
+    if (!this.uid) {
+      throw new Error("Not authenticated. Call authenticate() first.");
+    }
+
+    const absAmount = Math.abs(amount);
+    // Negative amount = outgoing payment = vendor bill; Positive = incoming = customer invoice
+    const moveType = amount < 0 ? "in_invoice" : "out_invoice";
+
+    const domain: unknown[][] = [
+      ["state", "=", "posted"],
+      ["move_type", "=", moveType],
+      ["amount_total", ">=", absAmount - 0.01],
+      ["amount_total", "<=", absAmount + 0.01],
+    ];
+
+    // If IBAN provided, resolve to partner IDs for more precise matching
+    if (iban) {
+      const normalizedIban = iban.replace(/\s/g, "");
+      try {
+        const bankResult = await this.callRPC("object", "execute_kw", [
+          this.config.database,
+          this.uid,
+          this.config.password,
+          "res.partner.bank",
+          "search_read",
+          [[["acc_number", "in", [normalizedIban, iban]]]],
+          { fields: ["id", "partner_id"] },
+        ]) as Array<{ id: number; partner_id: [number, string] | false }>;
+
+        const partnerIds = bankResult
+          .filter((b) => b.partner_id)
+          .map((b) => (b.partner_id as [number, string])[0]);
+
+        if (partnerIds.length > 0) {
+          domain.push(["partner_id", "in", partnerIds]);
+        }
+      } catch {
+        // Continue without IBAN filter
+      }
+    }
+
+    return await this.callRPC("object", "execute_kw", [
+      this.config.database,
+      this.uid,
+      this.config.password,
+      "account.move",
+      "search_read",
+      [domain],
+      {
+        fields: [
+          "id", "name", "ref", "partner_id",
+          "amount_total", "amount_residual",
+          "payment_state", "date", "invoice_date",
+        ],
+        limit: 20,
+        order: "date desc",
+      },
+    ]) as Array<{
+      id: number;
+      name: string;
+      ref: string | false;
+      partner_id: [number, string] | false;
+      amount_total: number;
+      amount_residual: number;
+      payment_state: string;
+      date: string;
+      invoice_date: string;
+    }>;
+  }
+
+  /**
+   * Get payment/reconciliation info for paid invoices.
+   * Returns the journal name, date, and move name of the payment that settled each invoice.
+   */
+  async getInvoicePaymentInfo(
+    invoiceIds: number[]
+  ): Promise<
+    Map<
+      number,
+      { journalName: string; date: string; moveName: string }
+    >
+  > {
+    if (!this.uid || invoiceIds.length === 0)
+      return new Map();
+
+    const result = new Map<
+      number,
+      { journalName: string; date: string; moveName: string }
+    >();
+
+    // Find reconciled payable/receivable lines on these invoices
+    const moveLines = (await this.callRPC("object", "execute_kw", [
+      this.config.database,
+      this.uid,
+      this.config.password,
+      "account.move.line",
+      "search_read",
+      [[
+        ["move_id", "in", invoiceIds],
+        ["account_type", "in", ["asset_receivable", "liability_payable"]],
+        ["reconciled", "=", true],
+      ]],
+      { fields: ["id", "move_id", "full_reconcile_id"] },
+    ])) as Array<{
+      id: number;
+      move_id: [number, string];
+      full_reconcile_id: [number, string] | false;
+    }>;
+
+    // Collect reconcile group IDs
+    const reconcileIds: number[] = [];
+    const invoiceToReconcile = new Map<number, number>();
+    for (const ml of moveLines) {
+      if (ml.full_reconcile_id) {
+        const rid = ml.full_reconcile_id[0];
+        reconcileIds.push(rid);
+        invoiceToReconcile.set(ml.move_id[0], rid);
+      }
+    }
+
+    if (reconcileIds.length === 0) return result;
+
+    // Find the counterpart lines in each reconciliation group (the payment lines, not the invoice lines)
+    const counterpartLines = (await this.callRPC("object", "execute_kw", [
+      this.config.database,
+      this.uid,
+      this.config.password,
+      "account.move.line",
+      "search_read",
+      [[
+        ["full_reconcile_id", "in", reconcileIds],
+        ["move_id", "not in", invoiceIds],
+      ]],
+      { fields: ["id", "move_id", "journal_id", "date", "full_reconcile_id"] },
+    ])) as Array<{
+      id: number;
+      move_id: [number, string];
+      journal_id: [number, string];
+      date: string;
+      full_reconcile_id: [number, string];
+    }>;
+
+    // Build a map from reconcile_id to payment info
+    const reconcileToPayment = new Map<
+      number,
+      { journalName: string; date: string; moveName: string }
+    >();
+    for (const cl of counterpartLines) {
+      reconcileToPayment.set(cl.full_reconcile_id[0], {
+        journalName: cl.journal_id[1],
+        date: cl.date,
+        moveName: cl.move_id[1],
+      });
+    }
+
+    // Map back to invoice IDs
+    for (const [invoiceId, reconcileId] of invoiceToReconcile) {
+      const payment = reconcileToPayment.get(reconcileId);
+      if (payment) {
+        result.set(invoiceId, payment);
+      }
+    }
+
+    return result;
+  }
+
   async getJournals(): Promise<JournalBasic[]> {
     if (!this.uid) {
       throw new Error("Not authenticated. Call authenticate() first.");
@@ -599,10 +1024,11 @@ export class OdooClient {
   }
 
   async getLatestInvoices(
-    limit: number = 10,
+    limit: number = 100,
     direction: InvoiceDirection = "all",
     since?: string,
-    until?: string
+    until?: string,
+    options?: { state?: string; paymentState?: string }
   ): Promise<Invoice[]> {
     if (!this.uid) {
       throw new Error("Not authenticated. Call authenticate() first.");
@@ -648,6 +1074,16 @@ export class OdooClient {
     // until: includes the entire day until 23:59:59
     if (until) {
       domain.push(["date", "<=", parseDate(until)]);
+    }
+
+    // Add state filter (e.g. "posted" to exclude draft/cancelled)
+    if (options?.state) {
+      domain.push(["state", "=", options.state]);
+    }
+
+    // Add payment_state filter (e.g. "not_paid" to exclude already paid)
+    if (options?.paymentState) {
+      domain.push(["payment_state", "=", options.paymentState]);
     }
 
     try {
@@ -3586,23 +4022,30 @@ export class OdooClient {
       status: string;
     }) => void,
     dryRun?: boolean,
-    forceReconcile: boolean = true
+    forceReconcile: boolean = true,
+    recentDays: number = 0
   ): Promise<{ reconciled: number; total: number }> {
     if (!this.uid) {
       throw new Error("Not authenticated. Call authenticate() first.");
     }
 
-    // Fetch all unreconciled statement lines (both incoming and outgoing)
+    // Fetch unreconciled statement lines, optionally limited to recent ones
+    const domain: unknown[][] = [
+      ["journal_id", "=", journalId],
+      ["is_reconciled", "=", false],
+    ];
+    if (recentDays > 0) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - recentDays);
+      domain.push(["date", ">=", cutoff.toISOString().split("T")[0]]);
+    }
     const lines = await this.callRPC("object", "execute_kw", [
       this.config.database,
       this.uid,
       this.config.password,
       "account.bank.statement.line",
       "search_read",
-      [[
-        ["journal_id", "=", journalId],
-        ["is_reconciled", "=", false],
-      ]],
+      [domain],
       { fields: ["id", "payment_ref", "partner_id", "amount"] },
     ]) as Array<{
       id: number;
@@ -3834,7 +4277,7 @@ export class OdooClient {
       }
     }
 
-    // --- Strategy 4: IBAN + amount (least selective) ---
+    // --- Strategy 4: IBAN + amount ---
     if (hasIban && amount > 0) {
       for (const [payOp, alreadyPaid] of paymentFilters) {
         const amountField = alreadyPaid ? "amount_total" : "amount_residual";
@@ -3866,6 +4309,21 @@ export class OdooClient {
           console.error(`Failed to find invoice by iban+amount:`, error);
         }
       }
+    }
+
+    // --- Strategy 5: amount only (least selective — only when exactly 1 match) ---
+    // Limited to invoices from the last 60 days to avoid false positives with old invoices
+    if (amount > 0) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 60);
+      const cutoffStr = cutoff.toISOString().split("T")[0];
+      const result = await searchInvoice([
+        ["move_type", "in", ["in_invoice", "out_invoice"]],
+        ["amount_total", ">=", amount - 0.01],
+        ["amount_total", "<=", amount + 0.01],
+        ["invoice_date", ">=", cutoffStr],
+      ], "amount");
+      if (result) return result;
     }
 
     return null;

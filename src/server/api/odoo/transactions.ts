@@ -10,15 +10,15 @@ export async function handleTransactionsRequest(
   const limit = parseInt(url.searchParams.get("limit") || "20");
   const page = parseInt(url.searchParams.get("page") || "1");
 
-  const odooUrl = url.searchParams.get("url") || Deno.env.get("ODOO_URL") || "";
+  const odooUrl = url.searchParams.get("url") || process.env.ODOO_URL || "";
   const database =
-    url.searchParams.get("db") || Deno.env.get("ODOO_DATABASE") || "";
+    url.searchParams.get("db") || process.env.ODOO_DATABASE || "";
 
   const sessionId = url.searchParams.get("session_id");
   const username =
-    url.searchParams.get("username") || Deno.env.get("ODOO_USERNAME") || "";
+    url.searchParams.get("username") || process.env.ODOO_USERNAME || "";
   const password =
-    url.searchParams.get("password") || Deno.env.get("ODOO_PASSWORD") || "";
+    url.searchParams.get("password") || process.env.ODOO_PASSWORD || "";
 
   if (!journalId) {
     return new Response(

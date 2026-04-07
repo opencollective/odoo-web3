@@ -16,7 +16,7 @@ import { OdooClient, type OdooConfig } from "../src/lib/odoo.ts";
 
 const OLD_JOURNAL_ID = 16;
 const TARGET_JOURNALS = [44, 47];
-const EXECUTE = Deno.args.includes("--execute");
+const EXECUTE = process.argv.slice(2).includes("--execute");
 
 async function callRPC(
   config: OdooConfig, uid: number, model: string, method: string,
@@ -237,14 +237,14 @@ async function copyAccountAssignment(
 
 async function main() {
   const config: OdooConfig = {
-    url: Deno.env.get("ODOO_URL") || "",
-    database: Deno.env.get("ODOO_DATABASE") || "",
-    username: Deno.env.get("ODOO_USERNAME") || "",
-    password: Deno.env.get("ODOO_PASSWORD") || "",
+    url: process.env.ODOO_URL || "",
+    database: process.env.ODOO_DATABASE || "",
+    username: process.env.ODOO_USERNAME || "",
+    password: process.env.ODOO_PASSWORD || "",
   };
 
   const client = new OdooClient(config);
-  if (!await client.authenticate()) { console.error("Auth failed"); Deno.exit(1); }
+  if (!await client.authenticate()) { console.error("Auth failed"); process.exit(1); }
   const uid = (client as unknown as { uid: number }).uid;
 
   console.log(`Database: ${config.database}`);
@@ -255,7 +255,7 @@ async function main() {
     fields: ["suspense_account_id"],
   }) as Array<{ suspense_account_id: [number, string] | false }>)[0];
   const suspenseAccountId = journal.suspense_account_id ? journal.suspense_account_id[0] : null;
-  if (!suspenseAccountId) { console.error("No suspense account!"); Deno.exit(1); }
+  if (!suspenseAccountId) { console.error("No suspense account!"); process.exit(1); }
 
   // Fetch J16 reconciled lines
   console.log(`Fetching J${OLD_JOURNAL_ID} reconciled lines...`);

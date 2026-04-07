@@ -51,7 +51,7 @@ export function App() {
   const [filters, setFilters] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return {
-      limit: params.get("limit") || "50",
+      limit: params.get("limit") || "100",
       since: params.get("since") || "",
       until: params.get("until") || "",
       incoming: params.has("incoming") ? params.get("incoming") === "true" : true,
@@ -70,7 +70,7 @@ export function App() {
     const params = new URLSearchParams();
     if (filters.since) params.set("since", filters.since);
     if (filters.until) params.set("until", filters.until);
-    if (filters.limit && filters.limit !== "50") params.set("limit", filters.limit);
+    if (filters.limit && filters.limit !== "100") params.set("limit", filters.limit);
     if (!filters.incoming) params.set("incoming", "false");
     if (filters.outgoing) params.set("outgoing", "true");
     if (filters.status && filters.status !== "all") params.set("status", filters.status);
@@ -285,6 +285,12 @@ export function App() {
     if (filters.limit) params.append("limit", filters.limit);
     if (filters.since) params.append("since", filters.since);
     if (filters.until) params.append("until", filters.until);
+
+    // Server-side filtering: exclude drafts and paid invoices for relevant views
+    if (filters.status === "ready_to_pay" || filters.status === "missing_bank") {
+      params.append("state", "posted");
+      params.append("payment_state", "not_paid");
+    }
 
     try {
       const response = await fetch(`/api/odoo/invoices?${params.toString()}`);
@@ -521,11 +527,11 @@ export function App() {
                     <input
                       type="number"
                       name="limit"
-                      placeholder="20"
+                      placeholder="100"
                       value={filters.limit}
                       onChange={handleFilterChange}
                       min="1"
-                      max="100"
+                      max="500"
                       className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>

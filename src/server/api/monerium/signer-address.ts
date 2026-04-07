@@ -3,7 +3,7 @@ import { corsHeaders } from "../shared.ts";
 
 export function handleMoneriumSignerAddressRequest(): Response {
   try {
-    let privateKey = Deno.env.get("PRIVATE_KEY");
+    let privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {
       // No PRIVATE_KEY means we're using WalletConnect
       return new Response(

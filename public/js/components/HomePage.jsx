@@ -215,7 +215,7 @@ function Dashboard({ navigate }) {
         </p>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid md:grid-cols-3 gap-6">
         <button
           onClick={() => navigate("/bills")}
           className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 hover:shadow-md transition-shadow text-left group"
@@ -243,6 +243,49 @@ function Dashboard({ navigate }) {
           </p>
           <div className="flex items-center text-blue-600 font-medium">
             Go to Bills
+            <svg
+              className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+          </div>
+        </button>
+
+        <button
+          onClick={() => navigate("/transactions")}
+          className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 hover:shadow-md transition-shadow text-left group"
+        >
+          <div className="flex items-center gap-4 mb-4">
+            <div className="p-3 rounded-lg bg-green-100 text-green-600 group-hover:bg-green-200 transition-colors">
+              <svg
+                className="w-8 h-8"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"
+                />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900">Transactions</h2>
+          </div>
+          <p className="text-gray-600 mb-4">
+            Monerium transactions with Odoo reconciliation status
+          </p>
+          <div className="flex items-center text-green-600 font-medium">
+            View Transactions
             <svg
               className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform"
               fill="none"

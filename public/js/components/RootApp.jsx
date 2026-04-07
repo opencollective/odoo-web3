@@ -5,6 +5,7 @@ import { SettingsPage } from "./SettingsPage.jsx";
 import { CollectiveExpensesPage } from "./CollectiveExpensesPage.jsx";
 import { CollectivesPage } from "./CollectivesPage.jsx";
 import { HomePage } from "./HomePage.jsx";
+import { TransactionsPage } from "./TransactionsPage.jsx";
 import { OdooSyncPage } from "./OdooSyncPage.jsx";
 import { OdooDoctorPage } from "./OdooDoctorPage.jsx";
 import { SandboxBanner } from "./SandboxBanner.js";
@@ -43,6 +44,20 @@ export function RootApp() {
           // Match /bills - Odoo invoices
           if (currentPath === "/bills") {
             return <App />;
+          }
+
+          // Match /transactions or /transactions/:address
+          if (currentPath === "/transactions") {
+            return <TransactionsPage navigate={navigate} />;
+          }
+          const txMatch = currentPath.match(/^\/transactions\/(0x[a-fA-F0-9]+)$/);
+          if (txMatch) {
+            return (
+              <TransactionsPage
+                navigate={navigate}
+                account={txMatch[1]}
+              />
+            );
           }
 
           // Match /odoo/sync - Blockchain sync testing page

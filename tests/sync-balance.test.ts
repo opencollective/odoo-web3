@@ -3,7 +3,7 @@
  *
  * Run with:  deno test -A --env-file=.env.test tests/sync-balance.test.ts
  */
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { test, expect } from "bun:test";
 import { OdooClient, type OdooConfig } from "../src/lib/odoo.ts";
 import { EtherscanClient } from "../src/lib/etherscan.ts";
 
@@ -12,13 +12,13 @@ const ADDRESS = "0xD578e7cd845e1ecD979b04784e77068D5eBd8716";
 const TOKEN_ADDRESS = "0x420CA0f9B9b604cE0fd9C18EF134C705e5Fa3430"; // EURe on Gnosis
 const CHAIN_ID = 100; // Gnosis mainnet
 
-Deno.test("sync blockchain transfers and verify balance matches on-chain", async () => {
+test("sync blockchain transfers and verify balance matches on-chain", async () => {
   // 1. Setup clients
   const odoo = new OdooClient({
-    url: Deno.env.get("ODOO_URL")!,
-    database: Deno.env.get("ODOO_DATABASE")!,
-    username: Deno.env.get("ODOO_USERNAME")!,
-    password: Deno.env.get("ODOO_PASSWORD")!,
+    url: process.env.ODOO_URL!,
+    database: process.env.ODOO_DATABASE!,
+    username: process.env.ODOO_USERNAME!,
+    password: process.env.ODOO_PASSWORD!,
   });
   await odoo.authenticate();
 
@@ -89,13 +89,13 @@ Deno.test("sync blockchain transfers and verify balance matches on-chain", async
     "account.bank.statement.line", "search_count",
     [[["journal_id", "=", JOURNAL_ID]]]
   ) as number;
-  assertEquals(remainingLines, 0, "Journal should be empty after emptyJournal()");
+  expect(remainingLines).toBe(0);
 
   const remainingStmts = await callRPC(
     "account.bank.statement", "search_count",
     [[["journal_id", "=", JOURNAL_ID]]]
   ) as number;
-  assertEquals(remainingStmts, 0, "No bank statements should remain after emptyJournal()");
+  expect(remainingStmts).toBe(0);
 
   // 5. Sync transfers
   console.log(`\nSyncing ${transfers.length} transfers to journal ${JOURNAL_ID}...`);
@@ -109,15 +109,15 @@ Deno.test("sync blockchain transfers and verify balance matches on-chain", async
     false, // not dry run
   );
   console.log(`Synced: ${result.synced}, Skipped: ${result.skipped}`);
-  assertEquals(result.synced, transfers.length, "All transfers should be synced");
-  assertEquals(result.skipped, 0, "No transfers should be skipped");
+  expect(result.synced).toBe(transfers.length);
+  expect(result.skipped).toBe(0);
 
   // 6. Verify statement lines count
   const syncedLines = await callRPC(
     "account.bank.statement.line", "search_count",
     [[["journal_id", "=", JOURNAL_ID]]]
   ) as number;
-  assertEquals(syncedLines, transfers.length, "Statement line count should match transfer count");
+  expect(syncedLines).toBe(transfers.length);
 
   // 7. Verify Odoo balance matches computed balance
   const allLines = await callRPC(
@@ -128,7 +128,7 @@ Deno.test("sync blockchain transfers and verify balance matches on-chain", async
 
   const odooBalance = Math.round(allLines.reduce((sum, l) => sum + l.amount, 0) * 100) / 100;
   console.log(`\nOdoo sum of statement line amounts: ${odooBalance.toFixed(2)} EURe`);
-  assertEquals(odooBalance, computedBalance, "Odoo balance should match computed balance from transfers");
+  expect(odooBalance).toBe(computedBalance);
 
   // 8. Verify bank statements chain correctly (no "Invalid Statements")
   const statements = await callRPC(
@@ -147,12 +147,9 @@ Deno.test("sync blockchain transfers and verify balance matches on-chain", async
     // Each statement's balance_start must equal the previous statement's balance_end_real
     if (prevEnd !== null) {
       const prevEndRounded = Math.round(prevEnd * 100) / 100;
-      assertEquals(
-        start, prevEndRounded,
-        `Statement "${stmt.name}" balance_start (${start}) should equal previous balance_end_real (${prevEndRounded})`
-      );
+      expect(start).toBe(prevEndRounded);
     } else {
-      assertEquals(start, 0, "First statement should start at 0");
+      expect(start).toBe(0);
     }
 
     // balance_end_real must equal balance_start + sum of lines in this statement
@@ -163,10 +160,7 @@ Deno.test("sync blockchain transfers and verify balance matches on-chain", async
     ) as Array<{ amount: number }>;
     const stmtTotal = Math.round(stmtLines.reduce((sum, l) => sum + l.amount, 0) * 100) / 100;
     const expectedEnd = Math.round((start + stmtTotal) * 100) / 100;
-    assertEquals(
-      end, expectedEnd,
-      `Statement "${stmt.name}" balance_end_real (${end}) should equal start (${start}) + lines sum (${stmtTotal}) = ${expectedEnd}`
-    );
+    expect(end).toBe(expectedEnd);
 
     prevEnd = stmt.balance_end_real;
   }
@@ -176,7 +170,7 @@ Deno.test("sync blockchain transfers and verify balance matches on-chain", async
     const lastEnd = Math.round(statements[statements.length - 1].balance_end_real * 100) / 100;
     console.log(`\nLast statement balance_end_real: ${lastEnd.toFixed(2)}`);
     console.log(`Expected (computed from transfers): ${computedBalance.toFixed(2)}`);
-    assertEquals(lastEnd, computedBalance, "Last statement balance should match computed balance");
+    expect(lastEnd).toBe(computedBalance);
   }
 
   console.log("\n✅ All checks passed!");

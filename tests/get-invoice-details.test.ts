@@ -1,13 +1,13 @@
-import { expect } from "jsr:@std/expect";
+import { test, expect } from "bun:test";
 import { OdooClient } from "../src/lib/odoo.ts";
 
 // Load environment variables for testing
-const ODOO_URL = Deno.env.get("ODOO_URL");
-const ODOO_DATABASE = Deno.env.get("ODOO_DATABASE");
-const ODOO_USERNAME = Deno.env.get("ODOO_USERNAME");
-const ODOO_PASSWORD = Deno.env.get("ODOO_PASSWORD");
+const ODOO_URL = process.env.ODOO_URL;
+const ODOO_DATABASE = process.env.ODOO_DATABASE;
+const ODOO_USERNAME = process.env.ODOO_USERNAME;
+const ODOO_PASSWORD = process.env.ODOO_PASSWORD;
 
-Deno.test("getInvoiceDetails - fetch complete invoice information", async () => {
+test("getInvoiceDetails - fetch complete invoice information", async () => {
   if (!ODOO_URL || !ODOO_DATABASE || !ODOO_USERNAME || !ODOO_PASSWORD) {
     console.log("⚠️  Skipping test: Odoo credentials not configured");
     return;
@@ -157,7 +157,7 @@ Deno.test("getInvoiceDetails - fetch complete invoice information", async () => 
   console.log(`\n📄 PDF URL: ${invoiceDetails.pdf_url}`);
 });
 
-Deno.test("getInvoiceDetails - handle invalid invoice ID", async () => {
+test("getInvoiceDetails - handle invalid invoice ID", async () => {
   if (!ODOO_URL || !ODOO_DATABASE || !ODOO_USERNAME || !ODOO_PASSWORD) {
     console.log("⚠️  Skipping test: Odoo credentials not configured");
     return;
@@ -187,7 +187,7 @@ Deno.test("getInvoiceDetails - handle invalid invoice ID", async () => {
   }
 });
 
-Deno.test("getInvoiceDetails - verify attachment URLs format", async () => {
+test("getInvoiceDetails - verify attachment URLs format", async () => {
   if (!ODOO_URL || !ODOO_DATABASE || !ODOO_USERNAME || !ODOO_PASSWORD) {
     console.log("⚠️  Skipping test: Odoo credentials not configured");
     return;

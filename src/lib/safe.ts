@@ -5,7 +5,7 @@ import { SigningMethod } from "@safe-global/types-kit";
 
 // Get RPC URL based on chain
 function getRpcUrl(chain: "gnosis" | "chiado"): string {
-  const envRpcUrl = Deno.env.get("SAFE_RPC_URL");
+  const envRpcUrl = process.env.SAFE_RPC_URL;
   if (envRpcUrl) {
     return envRpcUrl;
   }
@@ -31,12 +31,12 @@ export async function signMessage(
   safeAddressOverride?: string,
   chain: "gnosis" | "chiado" = "chiado"
 ): Promise<string> {
-  const privateKey = Deno.env.get("PRIVATE_KEY");
+  const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) {
     throw new Error("PRIVATE_KEY environment variable is required");
   }
 
-  const safeAddress = safeAddressOverride || Deno.env.get("SAFE_ADDRESS");
+  const safeAddress = safeAddressOverride || process.env.SAFE_ADDRESS;
   if (!safeAddress) {
     throw new Error("SAFE_ADDRESS environment variable is required");
   }

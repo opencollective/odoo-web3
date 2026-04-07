@@ -1,10 +1,10 @@
-import { expect } from "@std/expect";
+import { test, expect } from "bun:test";
 
 const GRAPHQL_ENDPOINT = "https://api.opencollective.com/graphql/v2";
 
 // Helper to check if OpenCollective API key is configured
 function isOpenCollectiveConfigured(): boolean {
-  return !!Deno.env.get("OC_API_KEY");
+  return !!process.env.OC_API_KEY;
 }
 
 // GraphQL mutation to mark expense as paid with manual: true
@@ -80,7 +80,7 @@ async function graphqlRequest<T>(
   return await response.json();
 }
 
-Deno.test("markExpenseAsPaid - mark expense as paid with manual: true", async () => {
+test("markExpenseAsPaid - mark expense as paid with manual: true", async () => {
   if (!isOpenCollectiveConfigured()) {
     console.log(
       "⏭️  Skipping: OC_API_KEY environment variable not configured"
@@ -88,7 +88,7 @@ Deno.test("markExpenseAsPaid - mark expense as paid with manual: true", async ()
     return;
   }
 
-  const apiKey = Deno.env.get("OC_API_KEY")!;
+  const apiKey = process.env.OC_API_KEY!;
   const collectiveSlug = "ls-learning-journey";
   const expenseLegacyId = 284429;
 
@@ -177,7 +177,7 @@ Deno.test("markExpenseAsPaid - mark expense as paid with manual: true", async ()
   console.log("✅ Test completed successfully");
 });
 
-Deno.test("getExpenseDetails - fetch expense details by legacyId", async () => {
+test("getExpenseDetails - fetch expense details by legacyId", async () => {
   if (!isOpenCollectiveConfigured()) {
     console.log(
       "⏭️  Skipping: OC_API_KEY environment variable not configured"
@@ -185,7 +185,7 @@ Deno.test("getExpenseDetails - fetch expense details by legacyId", async () => {
     return;
   }
 
-  const apiKey = Deno.env.get("OC_API_KEY")!;
+  const apiKey = process.env.OC_API_KEY!;
   const collectiveSlug = "ls-learning-journey";
   const expenseLegacyId = 284429;
 

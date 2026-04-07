@@ -89,7 +89,7 @@ export async function handleMoneriumOrderPlacement(
       signature = providedSignature;
     } else {
       // Otherwise, use server-side signing with PRIVATE_KEY
-      let privateKey = Deno.env.get("PRIVATE_KEY");
+      let privateKey = process.env.PRIVATE_KEY;
       if (!privateKey) {
         console.error(
           "❌ PRIVATE_KEY environment variable not set and no signature provided"

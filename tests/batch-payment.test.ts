@@ -1,16 +1,16 @@
-import { expect } from "@std/expect";
+import { test, expect } from "bun:test";
 
 // Helper to check if Monerium is configured
 function isMoneriumConfigured(): boolean {
   return !!(
-    Deno.env.get("MONERIUM_CLIENT_ID") &&
-    Deno.env.get("MONERIUM_CLIENT_SECRET")
+    process.env.MONERIUM_CLIENT_ID &&
+    process.env.MONERIUM_CLIENT_SECRET
   );
 }
 
 const BASE_URL = "http://localhost:8000";
 
-Deno.test(
+test(
   "batch-order - valid CSV with mixed organisation and individual types",
   async () => {
     if (!isMoneriumConfigured()) {
@@ -117,7 +117,7 @@ Deno.test(
   }
 );
 
-Deno.test("batch-order - reject invalid payment data", async () => {
+test("batch-order - reject invalid payment data", async () => {
   if (!isMoneriumConfigured()) {
     console.log("⏭️  Skipping: Monerium environment variables not configured");
     return;
@@ -170,7 +170,7 @@ Deno.test("batch-order - reject invalid payment data", async () => {
   console.log("✅ Invalid payment rejected correctly");
 });
 
-Deno.test("batch-order - reject empty payments array", async () => {
+test("batch-order - reject empty payments array", async () => {
   if (!isMoneriumConfigured()) {
     console.log("⏭️  Skipping: Monerium environment variables not configured");
     return;
@@ -213,7 +213,7 @@ Deno.test("batch-order - reject empty payments array", async () => {
   console.log("✅ Empty payments array rejected correctly");
 });
 
-Deno.test(
+test(
   "batch-order - reject invalid amount (negative or zero)",
   async () => {
     if (!isMoneriumConfigured()) {
@@ -271,7 +271,7 @@ Deno.test(
   }
 );
 
-Deno.test("batch-order - reject invalid type", async () => {
+test("batch-order - reject invalid type", async () => {
   if (!isMoneriumConfigured()) {
     console.log("⏭️  Skipping: Monerium environment variables not configured");
     return;

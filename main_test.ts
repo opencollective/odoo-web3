@@ -8,10 +8,10 @@
  * See the tests/ directory for all test files.
  */
 
-import { assertEquals } from "@std/assert";
+import { test, expect } from "bun:test";
 
-Deno.test("odoo-web3 test suite exists", () => {
+test("odoo-web3 test suite exists", () => {
   // This is a placeholder test
   // Real tests are in the tests/ directory
-  assertEquals(true, true);
+  expect(true).toBe(true);
 });

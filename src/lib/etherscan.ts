@@ -72,7 +72,7 @@ export class EtherscanClient {
 
   constructor(chainId: number) {
     this.apiUrl = CHAIN_API_URLS[chainId] || "https://api.etherscan.io/v2/api";
-    this.apiKey = Deno.env.get("ETHEREUM_ETHERSCAN_API_KEY");
+    this.apiKey = process.env.ETHEREUM_ETHERSCAN_API_KEY;
     this.chainId = chainId;
     // Only send chainid param for Etherscan v2 (not for Blockscout)
     this.useChainIdParam = this.apiUrl.includes("etherscan.io");

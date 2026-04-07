@@ -7,6 +7,8 @@ import { handleEmployeesRequest } from "./api/odoo/employees.ts";
 import { handleJournalsRequest } from "./api/odoo/journals.ts";
 import { handleSyncRequest } from "./api/odoo/sync.ts";
 import { handleDoctorRequest } from "./api/odoo/doctor.ts";
+import { handleMatchingInvoicesRequest, handleReconcileRequest } from "./api/odoo/reconcile.ts";
+import { handleSyncStatusRequest } from "./api/odoo/sync-status.ts";
 import { handleMoneriumTokenExchange } from "./api/monerium/token.ts";
 import { handleMoneriumConfigRequest } from "./api/monerium/config.ts";
 import { handleMoneriumClientCredentialsAuth } from "./api/monerium/authenticate.ts";
@@ -17,6 +19,7 @@ import { handleMoneriumSignerAddressRequest } from "./api/monerium/signer-addres
 import { handleMoneriumCheckAddress } from "./api/monerium/check-address.ts";
 import { handleBatchOrder } from "./api/monerium/batch-order.ts";
 import { handleTransfersRequest } from "./api/monerium/transfers.ts";
+import { handleMoneriumTransactionsRequest } from "./api/monerium/transactions.ts";
 import { handleExpensesRequest } from "./api/opencollective/expenses.ts";
 import { handleMarkPaidRequest } from "./api/opencollective/markPaid.ts";
 import { handleTestConnectionRequest } from "./api/opencollective/test.ts";
@@ -26,10 +29,10 @@ import { transform } from "@swc/core";
 import { privateKeyToAccount } from "viem/accounts";
 
 const PORT = 8000;
-const ENV = Deno.env.get("ENV") === "production" ? "production" : "sandbox";
+const ENV = process.env.ENV === "production" ? "production" : "sandbox";
 
 function getSignerAddressFromPrivateKey(): string | null {
-  const privateKeyRaw = Deno.env.get("PRIVATE_KEY");
+  const privateKeyRaw = process.env.PRIVATE_KEY;
   if (!privateKeyRaw) return null;
 
   const privateKey = privateKeyRaw.startsWith("0x")
@@ -50,7 +53,7 @@ function getSignerAddressFromPrivateKey(): string | null {
 
 const signerAddressFromPrivateKey = getSignerAddressFromPrivateKey();
 const serverWalletAddress =
-  Deno.env.get("SERVER_WALLET_ADDRESS") || signerAddressFromPrivateKey || "";
+  process.env.SERVER_WALLET_ADDRESS || signerAddressFromPrivateKey || "";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -65,7 +68,7 @@ const addPublicEnvironmentVariables = (html: string) => {
     const value =
       variable === "SERVER_WALLET_ADDRESS"
         ? serverWalletAddress
-        : Deno.env.get(variable) || "";
+        : process.env[variable] || "";
     return acc.replace(`{{${variable}}}`, value);
   }, html);
 };
@@ -108,8 +111,20 @@ async function handleRequest(req: Request): Promise<Response> {
     return handleSyncRequest(req);
   }
 
+  if (url.pathname === "/api/odoo/sync-status") {
+    return handleSyncStatusRequest(req);
+  }
+
   if (url.pathname === "/api/odoo/doctor") {
     return handleDoctorRequest(req);
+  }
+
+  if (url.pathname === "/api/odoo/matching-invoices") {
+    return handleMatchingInvoicesRequest(req);
+  }
+
+  if (url.pathname === "/api/odoo/reconcile") {
+    return handleReconcileRequest(req);
   }
 
   if (url.pathname === "/api/pdf/view") {
@@ -156,6 +171,10 @@ async function handleRequest(req: Request): Promise<Response> {
     return handleTransfersRequest(req);
   }
 
+  if (url.pathname === "/api/monerium/transactions") {
+    return handleMoneriumTransactionsRequest(req);
+  }
+
   // Open Collective API endpoints
   if (url.pathname === "/api/opencollective/expenses") {
     return handleExpensesRequest(req);
@@ -180,7 +199,7 @@ async function handleRequest(req: Request): Promise<Response> {
   // Serve monerium.html for /monerium route
   if (url.pathname === "/monerium") {
     try {
-      const html = await Deno.readTextFile("./public/monerium.html");
+      const html = await Bun.file("./public/monerium.html").text();
       return new Response(addPublicEnvironmentVariables(html), {
         headers: { "Content-Type": "text/html" },
       });
@@ -199,12 +218,14 @@ async function handleRequest(req: Request): Promise<Response> {
     url.pathname === "/odoo/sync" ||
     url.pathname === "/odoo/doctor" ||
     url.pathname === "/monerium/pay" ||
+    url.pathname === "/transactions" ||
+    url.pathname.match(/^\/transactions\/0x[a-fA-F0-9]+$/) ||
     url.pathname.match(/^\/invoices\/\d+$/) ||
     url.pathname.match(/^\/\d{4}\/\d{1,2}$/) ||
     url.pathname.match(/^\/oc\/.+$/)
   ) {
     try {
-      const html = await Deno.readTextFile("./public/index.html");
+      const html = await Bun.file("./public/index.html").text();
       return new Response(addPublicEnvironmentVariables(html), {
         headers: { "Content-Type": "text/html" },
       });
@@ -221,11 +242,11 @@ async function handleRequest(req: Request): Promise<Response> {
 
       // Inject environment variables into config.js
       if (url.pathname === "/js/config.js") {
-        const file = await Deno.readTextFile(filePath);
+        const file = await Bun.file(filePath).text();
         const configWithEnv = file
           .replace(
             '"{{ENV}}" || "sandbox"',
-            `"${Deno.env.get("ENV") || "sandbox"}"`
+            `"${process.env.ENV || "sandbox"}"`
           )
           .replace(
             '"{{SERVER_WALLET_ADDRESS}}" || ""',
@@ -236,9 +257,9 @@ async function handleRequest(req: Request): Promise<Response> {
         });
       }
 
-      // Transpile JSX files using SWC (what Deno uses internally)
+      // Transpile JSX files using SWC
       if (url.pathname.endsWith(".jsx")) {
-        const file = await Deno.readTextFile(filePath);
+        const file = await Bun.file(filePath).text();
 
         const result = await transform(file, {
           jsc: {
@@ -268,8 +289,7 @@ async function handleRequest(req: Request): Promise<Response> {
       }
 
       // Serve regular JavaScript files
-      const file = await Deno.readTextFile(filePath);
-      return new Response(file, {
+      return new Response(Bun.file(filePath), {
         headers: { "Content-Type": "application/javascript" },
       });
     } catch (error) {
@@ -282,13 +302,13 @@ async function handleRequest(req: Request): Promise<Response> {
   if (url.pathname.startsWith("/public/")) {
     try {
       const filePath = `.${url.pathname}`;
-      const file = await Deno.readFile(filePath);
+      const bunFile = Bun.file(filePath);
       const contentType = url.pathname.endsWith(".css")
         ? "text/css"
         : url.pathname.endsWith(".js")
         ? "application/javascript"
         : "text/plain";
-      return new Response(file, {
+      return new Response(bunFile, {
         headers: { "Content-Type": contentType },
       });
     } catch {
@@ -309,11 +329,9 @@ if (signerAddressFromPrivateKey) {
 } else {
   console.log("🔑 Signer address: not configured (PRIVATE_KEY not set)");
 }
-if (Deno.env.get("SERVER_WALLET_ADDRESS")) {
+if (process.env.SERVER_WALLET_ADDRESS) {
   console.log(
-    `🧾 SERVER_WALLET_ADDRESS (explicit): ${Deno.env.get(
-      "SERVER_WALLET_ADDRESS"
-    )}`
+    `🧾 SERVER_WALLET_ADDRESS (explicit): ${process.env.SERVER_WALLET_ADDRESS}`
   );
 } else if (signerAddressFromPrivateKey) {
   console.log(
@@ -359,4 +377,4 @@ console.log(`   - /api/opencollective/expenses - Fetch expenses for a collective
 console.log(`   - /api/opencollective/mark-paid - Mark an expense as paid`);
 console.log(`   - /api/opencollective/test - Test API key connection`);
 
-Deno.serve({ port: PORT }, handleRequest);
+Bun.serve({ port: PORT, fetch: handleRequest });

@@ -54,11 +54,10 @@ async function main() {
     console.log("=".repeat(60));
   } catch (error) {
     console.error("\n❌ Error:", error);
-    Deno.exit(1);
+    process.exit(1);
   }
 }
 
 // Run if executed directly
-if (import.meta.main) {
-  await main();
-}
+// Run if executed directly
+await main();

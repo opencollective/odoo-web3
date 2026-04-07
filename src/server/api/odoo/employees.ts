@@ -4,15 +4,15 @@ import { authenticateOdooClient } from "./utils.ts";
 export async function handleEmployeesRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
-  const odooUrl = url.searchParams.get("url") || Deno.env.get("ODOO_URL") || "";
+  const odooUrl = url.searchParams.get("url") || process.env.ODOO_URL || "";
   const database =
-    url.searchParams.get("db") || Deno.env.get("ODOO_DATABASE") || "";
+    url.searchParams.get("db") || process.env.ODOO_DATABASE || "";
 
   const sessionId = url.searchParams.get("session_id");
   const username =
-    url.searchParams.get("username") || Deno.env.get("ODOO_USERNAME") || "";
+    url.searchParams.get("username") || process.env.ODOO_USERNAME || "";
   const password =
-    url.searchParams.get("password") || Deno.env.get("ODOO_PASSWORD") || "";
+    url.searchParams.get("password") || process.env.ODOO_PASSWORD || "";
 
   if (!odooUrl || !database) {
     return new Response(

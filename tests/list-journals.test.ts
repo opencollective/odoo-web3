@@ -1,5 +1,4 @@
-import { assertEquals, assertExists } from "@std/assert";
-import { expect } from "@std/expect";
+import { test, expect } from "bun:test";
 import {
   OdooClient,
   getSuspenseAccount,
@@ -10,14 +9,14 @@ import {
 // Helper to check if Odoo is configured
 function isOdooConfigured(): boolean {
   return !!(
-    Deno.env.get("ODOO_URL") &&
-    Deno.env.get("ODOO_DATABASE") &&
-    Deno.env.get("ODOO_USERNAME") &&
-    Deno.env.get("ODOO_PASSWORD")
+    process.env.ODOO_URL &&
+    process.env.ODOO_DATABASE &&
+    process.env.ODOO_USERNAME &&
+    process.env.ODOO_PASSWORD
   );
 }
 
-Deno.test("getSuspenseAccount - returns suspense account", async () => {
+test("getSuspenseAccount - returns suspense account", async () => {
   if (!isOdooConfigured()) {
     console.log("⏭️  Skipping: Odoo environment variables not configured");
     return;
@@ -32,7 +31,7 @@ Deno.test("getSuspenseAccount - returns suspense account", async () => {
   expect(suspenseAccount).toBeGreaterThan(0);
 });
 
-Deno.test(
+test(
   "ensureJournalsSuspenseAccounts - fixes missing suspense accounts",
   async () => {
     if (!isOdooConfigured()) {
@@ -68,7 +67,7 @@ Deno.test(
   }
 );
 
-Deno.test("listJournals - returns journals with name and code", async () => {
+test("listJournals - returns journals with name and code", async () => {
   if (!isOdooConfigured()) {
     console.log("⏭️  Skipping: Odoo environment variables not configured");
     return;
@@ -88,19 +87,11 @@ Deno.test("listJournals - returns journals with name and code", async () => {
 
   // Verify each journal has required fields: name and code
   for (const journal of journals) {
-    assertExists(journal.name, `Journal ${journal.id} should have a name`);
-    assertExists(journal.code, `Journal ${journal.id} should have a code`);
+    expect(journal.name, `Journal ${journal.id} should have a name`).toBeDefined();
+    expect(journal.code, `Journal ${journal.id} should have a code`).toBeDefined();
 
-    assertEquals(
-      typeof journal.name,
-      "string",
-      `Journal ${journal.id} name should be a string`
-    );
-    assertEquals(
-      typeof journal.code,
-      "string",
-      `Journal ${journal.id} code should be a string`
-    );
+    expect(typeof journal.name).toBe("string");
+    expect(typeof journal.code).toBe("string");
   }
 
   // Display sample journals
@@ -116,7 +107,7 @@ Deno.test("listJournals - returns journals with name and code", async () => {
   console.log("\n✅ All journals have name and code");
 });
 
-Deno.test("listJournals - filters by type", async () => {
+test("listJournals - filters by type", async () => {
   if (!isOdooConfigured()) {
     console.log("⏭️  Skipping: Odoo environment variables not configured");
     return;
@@ -136,13 +127,9 @@ Deno.test("listJournals - filters by type", async () => {
 
   // Verify each journal has name, code, and is of type 'bank'
   for (const journal of bankJournals) {
-    assertExists(journal.name, `Bank journal ${journal.id} should have a name`);
-    assertExists(journal.code, `Bank journal ${journal.id} should have a code`);
-    assertEquals(
-      journal.type,
-      "bank",
-      `Journal ${journal.id} should be of type 'bank'`
-    );
+    expect(journal.name, `Bank journal ${journal.id} should have a name`).toBeDefined();
+    expect(journal.code, `Bank journal ${journal.id} should have a code`).toBeDefined();
+    expect(journal.type).toBe("bank");
 
     console.log(
       `  • ${journal.code} - ${journal.name} (Type: ${journal.type})`
@@ -152,7 +139,7 @@ Deno.test("listJournals - filters by type", async () => {
   console.log("\n✅ All bank journals have name, code, and correct type");
 });
 
-Deno.test("listJournals - respects limit option", async () => {
+test("listJournals - respects limit option", async () => {
   if (!isOdooConfigured()) {
     console.log("⏭️  Skipping: Odoo environment variables not configured");
     return;
@@ -174,8 +161,8 @@ Deno.test("listJournals - respects limit option", async () => {
 
   // Verify each journal has name and code
   for (const journal of limitedJournals) {
-    assertExists(journal.name);
-    assertExists(journal.code);
+    expect(journal.name).toBeDefined();
+    expect(journal.code).toBeDefined();
     console.log(`  • ${journal.code} - ${journal.name}`);
   }
 
@@ -184,7 +171,7 @@ Deno.test("listJournals - respects limit option", async () => {
   );
 });
 
-Deno.test("listJournals - filters by specific code", async () => {
+test("listJournals - filters by specific code", async () => {
   if (!isOdooConfigured()) {
     console.log("⏭️  Skipping: Odoo environment variables not configured");
     return;
@@ -214,9 +201,9 @@ Deno.test("listJournals - filters by specific code", async () => {
 
   // Verify each journal has the correct code, name, and code field
   for (const journal of filteredJournals) {
-    assertExists(journal.name);
-    assertExists(journal.code);
-    assertEquals(journal.code, testCode);
+    expect(journal.name).toBeDefined();
+    expect(journal.code).toBeDefined();
+    expect(journal.code).toBe(testCode);
     console.log(`  • ${journal.code} - ${journal.name}`);
   }
 

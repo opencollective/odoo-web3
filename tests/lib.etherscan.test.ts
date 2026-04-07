@@ -1,14 +1,13 @@
-import { assertEquals } from "@std/assert";
-import { expect } from "@std/expect";
+import { test, expect } from "bun:test";
 import { EtherscanClient } from "../src/lib/etherscan.ts";
 import type { Address } from "viem";
 
 // Helper to check if Etherscan is configured
 function isEtherscanConfigured(): boolean {
-  return !!Deno.env.get("ETHEREUM_ETHERSCAN_API_KEY");
+  return !!process.env.ETHEREUM_ETHERSCAN_API_KEY;
 }
 
-Deno.test("Fetch token transfers from Gnosis Chain", async () => {
+test("Fetch token transfers from Gnosis Chain", async () => {
   if (!isEtherscanConfigured()) {
     console.log("⏭️  Skipping: Etherscan API key not configured");
     return;
@@ -32,7 +31,7 @@ Deno.test("Fetch token transfers from Gnosis Chain", async () => {
   );
 
   // Verify we got exactly 5 transactions
-  assertEquals(transfers.length, 5, "Expected 5 transactions");
+  expect(transfers.length).toBe(5);
 
   // Calculate running balance
   let runningBalance = 0;
@@ -83,11 +82,7 @@ Deno.test("Fetch token transfers from Gnosis Chain", async () => {
   console.log("=".repeat(100));
 
   // Verify the running balance matches expected value
-  assertEquals(
-    runningBalance.toFixed(2),
-    "43751.37",
-    "Running balance should be 43751.37"
-  );
+  expect(runningBalance.toFixed(2)).toBe("43751.37");
 
   // Additional assertions to verify data integrity
   expect(sortedTransfers[0].tokenSymbol).toBe("EURe");
