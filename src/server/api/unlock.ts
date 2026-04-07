@@ -22,13 +22,9 @@ export async function handleUnlockRequest(req: Request): Promise<Response> {
     });
   }
 
-  if (!needsUnlock()) {
+  if (!process.env.PRIVATE_KEY_ENCRYPTED) {
     return new Response(
-      JSON.stringify({
-        error: isUnlocked()
-          ? "Already unlocked"
-          : "No PRIVATE_KEY_ENCRYPTED configured",
-      }),
+      JSON.stringify({ error: "No PRIVATE_KEY_ENCRYPTED configured" }),
       { status: 400, headers: corsHeaders }
     );
   }

@@ -134,24 +134,52 @@ export const handlePay = async (
     console.log(`🏢 Paying company: ${companyName}`);
   }
 
-  const response = await fetch("/api/monerium/order", {
+  const orderPayload = {
+    amount: amountToPay,
+    iban: invoice.bank_account_number,
+    memo,
+    environment,
+    accessToken,
+    accountAddress,
+    companyName,
+    firstName,
+    lastName,
+    signature: signature || undefined,
+  };
+
+  let response = await fetch("/api/monerium/order", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      amount: amountToPay,
-      iban: invoice.bank_account_number,
-      memo,
-      environment,
-      accessToken,
-      accountAddress,
-      companyName,
-      firstName,
-      lastName,
-      signature: signature || undefined,
-    }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(orderPayload),
   });
+
+  // If the server signing key is locked, prompt for passphrase and retry
+  if (response.status === 423) {
+    const passphrase = prompt(
+      "Server signing key is locked. Enter the passphrase to unlock:"
+    );
+    if (!passphrase) {
+      throw new Error("Signing key is locked and no passphrase was provided.");
+    }
+
+    const unlockResp = await fetch("/api/unlock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ passphrase }),
+    });
+
+    if (!unlockResp.ok) {
+      const unlockData = await unlockResp.json();
+      throw new Error(unlockData.error || "Failed to unlock signing key.");
+    }
+
+    // Retry the order
+    response = await fetch("/api/monerium/order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(orderPayload),
+    });
+  }
 
   const data = await response.json();
 

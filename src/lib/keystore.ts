@@ -24,12 +24,19 @@ let storedPassphrase: string | null = null;
  * Returns null if locked (no passphrase stored).
  */
 export async function getPrivateKey(): Promise<string | null> {
-  if (!storedPassphrase) return null;
+  if (!storedPassphrase) {
+    console.log("[keystore] getPrivateKey: no passphrase stored");
+    return null;
+  }
   const encrypted = process.env.PRIVATE_KEY_ENCRYPTED;
-  if (!encrypted) return null;
+  if (!encrypted) {
+    console.log("[keystore] getPrivateKey: no PRIVATE_KEY_ENCRYPTED env var");
+    return null;
+  }
   try {
     return await decrypt(encrypted, storedPassphrase);
-  } catch {
+  } catch (err) {
+    console.error("[keystore] getPrivateKey: decrypt failed:", err);
     return null;
   }
 }
@@ -67,6 +74,7 @@ export async function unlock(passphrase: string): Promise<boolean> {
       throw new Error("Decrypted value is not a valid private key");
     }
     storedPassphrase = passphrase;
+    console.log("[keystore] Passphrase stored successfully");
     return true;
   } catch {
     return false;
