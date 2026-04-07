@@ -2,6 +2,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { signMessage } from "../../../lib/safe.ts";
 import { corsHeaders } from "../shared.ts";
 import { normalizeIban, getBalance } from "./utils.ts";
+import { getPrivateKey } from "../../../lib/keystore.ts";
 
 interface PaymentItem {
   name: string;
@@ -149,15 +150,15 @@ export async function handleBatchOrder(req: Request): Promise<Response> {
       console.log("✍️ Using signature from frontend (WalletConnect)");
       batchSignature = providedSignature;
     } else {
-      // Sign with server private key or Safe
-      let privateKey = process.env.PRIVATE_KEY;
+      // Sign with server keystore or Safe
+      let privateKey = getPrivateKey();
       if (!privateKey) {
         return new Response(
           JSON.stringify({
             error:
-              "Server configuration error: PRIVATE_KEY not set. Please connect a wallet to sign.",
+              "Server signing key is locked. Unlock via /api/unlock or connect a wallet to sign.",
           }),
-          { status: 500, headers: corsHeaders }
+          { status: 423, headers: corsHeaders }
         );
       }
 

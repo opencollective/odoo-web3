@@ -1,11 +1,12 @@
 import { privateKeyToAccount } from "viem/accounts";
 import { corsHeaders } from "../shared.ts";
+import { getPrivateKey } from "../../../lib/keystore.ts";
 
 export function handleMoneriumSignerAddressRequest(): Response {
   try {
-    let privateKey = process.env.PRIVATE_KEY;
+    let privateKey = getPrivateKey();
     if (!privateKey) {
-      // No PRIVATE_KEY means we're using WalletConnect
+      // Key locked or not configured — use WalletConnect
       return new Response(
         JSON.stringify({
           address: null,

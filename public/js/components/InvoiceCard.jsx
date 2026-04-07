@@ -1,5 +1,5 @@
 import { isInvoicePaid, markInvoiceAsPaid, getSelectedMoneriumAccount, setSelectedMoneriumAccount } from "../utils/storage.js";
-import { getStorageKey, ENV } from "../config.js";
+import { getStorageKey } from "../config.js";
 import {
   IncomingIcon,
   OutgoingIcon,
@@ -69,7 +69,7 @@ export function InvoiceCard({
       return;
     }
 
-    const signerAddress = wallet?.walletAddress || ENV.serverWalletAddress;
+    const signerAddress = wallet?.signerAddress;
     console.log(">>> selectedAccount", selectedAccount, signerAddress);
     const error = getValidationError(selectedAccount, signerAddress);
     setAddressValidationError(error);

@@ -57,7 +57,11 @@
       "Bash(bunx tsc:*)",
       "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); txs=data.get\\(''''transactions'''',[]\\); print\\(f''''Total: {len\\(txs\\)}''''\\); [print\\(json.dumps\\({k:v for k,v in t.items\\(\\) if k in \\(''''id'''',''''amount'''',''''kind'''',''''isReconciled'''',''''invoice'''',''''odooUrl'''',''''memo''''\\)}, indent=2\\)\\) for t in txs[:3]]\")",
       "Bash(git status:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(python3 -m json.tool)"
     ]
   }
 }

@@ -37,7 +37,6 @@
       try {
         ENV = {
           environment: "{{ENV}}" || "sandbox",
-          serverWalletAddress: "{{SERVER_WALLET_ADDRESS}}" || "",
         };
         // Fallback if environment is empty string
         if (!ENV.environment || ENV.environment === "{{ENV}}") {
@@ -47,7 +46,6 @@
         console.error("Failed to initialize ENV:", e);
         ENV = {
           environment: "sandbox",
-          serverWalletAddress: "",
         };
       }
 

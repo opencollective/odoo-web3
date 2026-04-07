@@ -2,6 +2,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { signMessage } from "../../../lib/safe.ts";
 import { corsHeaders } from "../shared.ts";
 import { normalizeIban } from "./utils.ts";
+import { getPrivateKey } from "../../../lib/keystore.ts";
 
 export async function handleMoneriumOrderPlacement(
   req: Request
@@ -88,18 +89,18 @@ export async function handleMoneriumOrderPlacement(
       console.log("✍️ Using signature from frontend (WalletConnect)");
       signature = providedSignature;
     } else {
-      // Otherwise, use server-side signing with PRIVATE_KEY
-      let privateKey = process.env.PRIVATE_KEY;
+      // Otherwise, use server-side signing with the keystore
+      let privateKey = getPrivateKey();
       if (!privateKey) {
         console.error(
-          "❌ PRIVATE_KEY environment variable not set and no signature provided"
+          "❌ Signing key locked and no signature provided"
         );
         return new Response(
           JSON.stringify({
             error:
-              "Server configuration error: PRIVATE_KEY not set. Please connect a wallet to sign.",
+              "Server signing key is locked. Unlock via /api/unlock or connect a wallet to sign.",
           }),
-          { status: 500, headers: corsHeaders }
+          { status: 423, headers: corsHeaders }
         );
       }
 

@@ -1,10 +1,25 @@
 // React is available as a global
 const { useState, useEffect } = window.React;
 
-// Wallet connection hook for MetaMask
+// Wallet connection hook for MetaMask + server-side signer fallback
 export const useWallet = () => {
   const [walletAddress, setWalletAddress] = useState(null);
+  const [serverSignerAddress, setServerSignerAddress] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
+
+  // Fetch server-side signer address (available after keystore unlock)
+  useEffect(() => {
+    fetch("/api/monerium/signer-address")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.address) {
+          setServerSignerAddress(data.address);
+        }
+      })
+      .catch(() => {
+        // Server key not available -- WalletConnect only
+      });
+  }, []);
 
   useEffect(() => {
     // Check if already connected on page load
@@ -81,8 +96,12 @@ export const useWallet = () => {
     }
   };
 
+  // Browser wallet takes precedence, server signer is fallback
+  const signerAddress = walletAddress || serverSignerAddress;
+
   return {
     walletAddress,
+    signerAddress,
     isConnecting,
     connectWallet,
     signMessage,

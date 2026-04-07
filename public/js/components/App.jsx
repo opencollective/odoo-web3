@@ -1,7 +1,7 @@
 import { BillsStats } from "./BillsStats.jsx";
 import { InvoiceCard } from "./InvoiceCard.jsx";
 import { PDFSidebar } from "./PDFSidebar.jsx";
-import { getStorageKey, ENV } from "../config.js";
+import { getStorageKey } from "../config.js";
 import {
   loadMoneriumConnectionState,
   isInvoicePaid,
@@ -203,7 +203,7 @@ export function App() {
           const accounts = Array.isArray(data) ? data : [];
           // Validate accounts with current wallet/server address
           const signerAddress =
-            wallet?.walletAddress || ENV.serverWalletAddress;
+            wallet?.signerAddress;
           const validatedAccounts = validateAccounts(accounts, signerAddress);
           setAvailableAccounts(validatedAccounts);
         } else {
@@ -221,7 +221,7 @@ export function App() {
   // Re-validate accounts when wallet address changes
   useEffect(() => {
     if (availableAccounts.length > 0) {
-      const signerAddress = wallet?.walletAddress || ENV.serverWalletAddress;
+      const signerAddress = wallet?.signerAddress;
       // Get raw accounts without validation props
       const rawAccounts = availableAccounts.map(
         ({ usable, validationError, ...acc }) => acc

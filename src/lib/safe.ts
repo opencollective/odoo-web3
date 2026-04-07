@@ -2,6 +2,7 @@
 // Documentation: https://docs.safe.global/sdk/protocol-kit/guides/signatures/messages
 import Safe from "@safe-global/protocol-kit";
 import { SigningMethod } from "@safe-global/types-kit";
+import { getPrivateKey } from "./keystore.ts";
 
 // Get RPC URL based on chain
 function getRpcUrl(chain: "gnosis" | "chiado"): string {
@@ -31,9 +32,9 @@ export async function signMessage(
   safeAddressOverride?: string,
   chain: "gnosis" | "chiado" = "chiado"
 ): Promise<string> {
-  const privateKey = process.env.PRIVATE_KEY;
+  const privateKey = getPrivateKey();
   if (!privateKey) {
-    throw new Error("PRIVATE_KEY environment variable is required");
+    throw new Error("Signing key not available. Unlock via /api/unlock first.");
   }
 
   const safeAddress = safeAddressOverride || process.env.SAFE_ADDRESS;

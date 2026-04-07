@@ -1,4 +1,4 @@
-import { getStorageKey, ENV } from "../config.js";
+import { getStorageKey } from "../config.js";
 import {
   loadMoneriumConnectionState,
   setOpenCollectiveCollective,
@@ -71,7 +71,7 @@ export function CollectiveExpensesPage({ slug, navigate }) {
         if (response.ok) {
           const data = await response.json();
           const accounts = Array.isArray(data) ? data : [];
-          const signerAddress = wallet?.walletAddress || ENV.serverWalletAddress;
+          const signerAddress = wallet?.signerAddress;
           const validatedAccounts = validateAccounts(accounts, signerAddress);
           setAvailableAccounts(validatedAccounts);
         } else {

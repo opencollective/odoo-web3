@@ -9,7 +9,7 @@
  *   rm -rf cache/                  # refresh everything
  */
 
-import { mkdir, unlink } from "fs/promises";
+import { mkdir, unlink } from "node:fs/promises";
 
 const CACHE_DIR = "cache";
 

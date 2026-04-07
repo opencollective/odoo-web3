@@ -1,5 +1,5 @@
-# Use the official Deno image (Debian-based for @swc/core compatibility)
-FROM denoland/deno:debian-2.5.6
+# Use the official Bun image
+FROM oven/bun:1-debian
 
 # Install curl
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
@@ -10,7 +10,13 @@ RUN mkdir -p /app
 # Set working directory
 WORKDIR /app
 
-# Copy your project files
+# Copy package files first for better layer caching
+COPY package.json bun.lock ./
+
+# Install dependencies
+RUN bun install --frozen-lockfile
+
+# Copy the rest of the project
 COPY . .
 
-CMD ["deno", "run", "--allow-net", "--allow-read", "--allow-env", "--allow-ffi", "--env-file=.env", "src/server/index.ts"]
+CMD ["bun", "run", "--env-file=.env", "src/server/index.ts"]

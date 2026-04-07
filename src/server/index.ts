@@ -25,35 +25,12 @@ import { handleMarkPaidRequest } from "./api/opencollective/markPaid.ts";
 import { handleTestConnectionRequest } from "./api/opencollective/test.ts";
 import { handleFileProxyRequest } from "./api/opencollective/file.ts";
 import { handleCollectivesRequest } from "./api/opencollective/collectives.ts";
+import { handleUnlockRequest, handleUnlockStatusRequest, handleLockRequest } from "./api/unlock.ts";
+import { needsUnlock } from "../lib/keystore.ts";
 import { transform } from "@swc/core";
-import { privateKeyToAccount } from "viem/accounts";
 
 const PORT = 8000;
 const ENV = process.env.ENV === "production" ? "production" : "sandbox";
-
-function getSignerAddressFromPrivateKey(): string | null {
-  const privateKeyRaw = process.env.PRIVATE_KEY;
-  if (!privateKeyRaw) return null;
-
-  const privateKey = privateKeyRaw.startsWith("0x")
-    ? privateKeyRaw
-    : `0x${privateKeyRaw}`;
-
-  try {
-    const account = privateKeyToAccount(privateKey as `0x${string}`);
-    return account.address;
-  } catch (error) {
-    console.error(
-      "Failed to derive signer address from PRIVATE_KEY:",
-      error instanceof Error ? error.message : String(error)
-    );
-    return null;
-  }
-}
-
-const signerAddressFromPrivateKey = getSignerAddressFromPrivateKey();
-const serverWalletAddress =
-  process.env.SERVER_WALLET_ADDRESS || signerAddressFromPrivateKey || "";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -63,12 +40,9 @@ const corsHeaders = {
 };
 
 const addPublicEnvironmentVariables = (html: string) => {
-  const PUBLIC_ENV_VARIABLES = ["ENV", "SERVER_WALLET_ADDRESS"];
+  const PUBLIC_ENV_VARIABLES = ["ENV"];
   return PUBLIC_ENV_VARIABLES.reduce((acc, variable) => {
-    const value =
-      variable === "SERVER_WALLET_ADDRESS"
-        ? serverWalletAddress
-        : process.env[variable] || "";
+    const value = process.env[variable] || "";
     return acc.replace(`{{${variable}}}`, value);
   }, html);
 };
@@ -79,6 +53,17 @@ async function handleRequest(req: Request): Promise<Response> {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  // Keystore unlock/lock endpoints
+  if (url.pathname === "/api/unlock" && req.method === "GET") {
+    return handleUnlockStatusRequest();
+  }
+  if (url.pathname === "/api/unlock" && req.method === "POST") {
+    return handleUnlockRequest(req);
+  }
+  if (url.pathname === "/api/lock" && req.method === "POST") {
+    return handleLockRequest(req);
   }
 
   // API endpoints
@@ -247,10 +232,6 @@ async function handleRequest(req: Request): Promise<Response> {
           .replace(
             '"{{ENV}}" || "sandbox"',
             `"${process.env.ENV || "sandbox"}"`
-          )
-          .replace(
-            '"{{SERVER_WALLET_ADDRESS}}" || ""',
-            `"${serverWalletAddress}"`
           );
         return new Response(configWithEnv, {
           headers: { "Content-Type": "application/javascript" },
@@ -319,24 +300,25 @@ async function handleRequest(req: Request): Promise<Response> {
   return new Response("Not Found", { status: 404 });
 }
 
+// --- Startup checks ---
+const warnings: string[] = [];
+if (!process.env.MONERIUM_CLIENT_ID || !process.env.MONERIUM_CLIENT_SECRET) {
+  warnings.push("MONERIUM_CLIENT_ID / MONERIUM_CLIENT_SECRET not set — Monerium enrichment during sync will be unavailable");
+}
+if (!process.env.PRIVATE_KEY_ENCRYPTED) {
+  warnings.push("PRIVATE_KEY_ENCRYPTED not set — server-side signing unavailable, use WalletConnect instead");
+}
+
 console.log(
   `🚀 Server running at http://localhost:${PORT}/ in ${ENV} environment`
 );
-if (signerAddressFromPrivateKey) {
-  console.log(
-    `🔑 Signer address (from PRIVATE_KEY): ${signerAddressFromPrivateKey}`
-  );
+if (needsUnlock()) {
+  console.log("🔒 Signing: PRIVATE_KEY_ENCRYPTED configured — unlock required via /api/unlock");
 } else {
-  console.log("🔑 Signer address: not configured (PRIVATE_KEY not set)");
+  console.log("🔑 Signing: no encrypted key configured, use WalletConnect");
 }
-if (process.env.SERVER_WALLET_ADDRESS) {
-  console.log(
-    `🧾 SERVER_WALLET_ADDRESS (explicit): ${process.env.SERVER_WALLET_ADDRESS}`
-  );
-} else if (signerAddressFromPrivateKey) {
-  console.log(
-    `🧾 SERVER_WALLET_ADDRESS (derived from PRIVATE_KEY): ${serverWalletAddress}`
-  );
+for (const w of warnings) {
+  console.log(`⚠️  ${w}`);
 }
 console.log(`📋 API endpoints:`);
 console.log(`   - /api/odoo/invoices - Fetch invoices from Odoo`);

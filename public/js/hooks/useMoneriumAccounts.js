@@ -1,7 +1,6 @@
 // React is available as a global
 const { useState, useEffect } = window.React;
 import { getStorageKey } from "../config.js";
-import { ENV } from "../config.js";
 import { validateAccounts } from "../utils/validation.js";
 
 // Hook to load and validate Monerium accounts
@@ -52,7 +51,7 @@ export const useMoneriumAccounts = (wallet) => {
           const accounts = Array.isArray(data) ? data : [];
           // Validate accounts with current wallet/server address
           const signerAddress =
-            wallet?.walletAddress || ENV.serverWalletAddress;
+            wallet?.signerAddress;
           const validatedAccounts = validateAccounts(
             accounts,
             signerAddress
@@ -74,7 +73,7 @@ export const useMoneriumAccounts = (wallet) => {
   useEffect(() => {
     if (availableAccounts.length > 0) {
       const signerAddress =
-        wallet?.walletAddress || ENV.serverWalletAddress;
+        wallet?.signerAddress;
       // Get raw accounts without validation props
       const rawAccounts = availableAccounts.map(
         ({ usable, validationError, ...acc }) => acc
