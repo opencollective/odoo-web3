@@ -10,7 +10,7 @@ import {
 import { testConnection as testOCConnection } from "../services/opencollective.js";
 import { LoaderIcon, ExternalLinkIcon } from "./icons.jsx";
 
-const { useState, useEffect } = React;
+const { useState, useEffect, useCallback } = React;
 
 export function SettingsPage({ navigate }) {
   // Odoo connection state
@@ -173,6 +173,30 @@ export function SettingsPage({ navigate }) {
     }
   };
 
+  // Logout
+  const [lockServer, setLockServer] = useState(false);
+
+  const handleLogout = useCallback(async () => {
+    if (lockServer) {
+      try {
+        await fetch("/api/lock", { method: "POST" });
+      } catch {}
+    }
+    const connectionKeys = [
+      "odoo_connection",
+      "monerium_connection",
+      "monerium_oauth",
+      "monerium_selected_account",
+      "opencollective_api_key",
+      "opencollective_collective",
+      "keystore_verified",
+    ];
+    connectionKeys.forEach((key) => {
+      localStorage.removeItem(getStorageKey(key));
+    });
+    window.location.href = "/";
+  }, [lockServer]);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-3xl mx-auto px-4 py-8">
@@ -317,7 +341,7 @@ export function SettingsPage({ navigate }) {
         />
 
         {/* Open Collective Connection */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6" id="opencollective">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div>
               <h2 className="text-lg font-semibold">Open Collective</h2>
@@ -419,6 +443,38 @@ export function SettingsPage({ navigate }) {
               </button>
             )}
           </div>
+        </div>
+
+        {/* Logout */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6 border border-red-100">
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Logout</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Clear all saved connections (Odoo credentials, Monerium connection,
+            selected accounts) from this browser. Your labels and other
+            preferences will be kept.
+          </p>
+
+          <label className="flex items-start gap-2 mb-5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={lockServer}
+              onChange={(e) => setLockServer(e.target.checked)}
+              className="mt-0.5 rounded border-gray-300 text-red-600 focus:ring-red-500"
+            />
+            <span className="text-sm text-gray-700">
+              Also lock the server signing key
+              <span className="block text-xs text-gray-500 mt-0.5">
+                The passphrase will need to be re-entered after this.
+              </span>
+            </span>
+          </label>
+
+          <button
+            onClick={handleLogout}
+            className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            Logout
+          </button>
         </div>
       </div>
     </div>

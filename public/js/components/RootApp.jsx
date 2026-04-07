@@ -10,9 +10,9 @@ import { OdooSyncPage } from "./OdooSyncPage.jsx";
 import { OdooDoctorPage } from "./OdooDoctorPage.jsx";
 import { SandboxBanner } from "./SandboxBanner.js";
 import { Router } from "./Router.js";
-import { getStorageKey, ENV } from "../config.js";
+import { getStorageKey } from "../config.js";
 
-const { useState, useCallback } = React;
+const { useState } = React;
 
 export function RootApp() {
   // Load connection settings from localStorage
@@ -30,29 +30,6 @@ export function RootApp() {
 
   const [connectionSettings] = useState(loadConnectionSettings);
   const [sessionId] = useState(null);
-  const [showLogout, setShowLogout] = useState(false);
-
-  const handleLogout = useCallback(async (alsoLockServer) => {
-    if (alsoLockServer) {
-      try {
-        await fetch("/api/lock", { method: "POST" });
-      } catch {}
-    }
-    // Only clear connection-related keys, keep user data (labels, settings, etc.)
-    const connectionKeys = [
-      "odoo_connection",
-      "monerium_connection",
-      "monerium_oauth",
-      "monerium_selected_account",
-      "opencollective_api_key",
-      "opencollective_collective",
-      "keystore_verified",
-    ];
-    connectionKeys.forEach((key) => {
-      localStorage.removeItem(getStorageKey(key));
-    });
-    window.location.href = "/";
-  }, []);
 
   return (
     <>
@@ -140,70 +117,6 @@ export function RootApp() {
           return <HomePage navigate={navigate} />;
         }}
       </Router>
-
-      {/* Footer */}
-      <footer className="py-6 text-center">
-        <button
-          onClick={() => setShowLogout(true)}
-          className="text-xs text-gray-400 hover:text-red-500 transition-colors"
-        >
-          Logout
-        </button>
-      </footer>
-
-      {/* Logout confirmation dialog */}
-      {showLogout && (
-        <LogoutDialog
-          onCancel={() => setShowLogout(false)}
-          onConfirm={handleLogout}
-        />
-      )}
     </>
-  );
-}
-
-function LogoutDialog({ onCancel, onConfirm }) {
-  const [lockServer, setLockServer] = useState(false);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl max-w-sm w-full mx-4 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">Logout</h3>
-        <p className="text-sm text-gray-600 mb-4">
-          This will clear all saved settings (Odoo credentials, Monerium
-          connection, selected accounts) from this browser.
-        </p>
-
-        <label className="flex items-start gap-2 mb-6 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={lockServer}
-            onChange={(e) => setLockServer(e.target.checked)}
-            className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-          <span className="text-sm text-gray-700">
-            Also lock the server signing key
-            <span className="block text-xs text-gray-500 mt-0.5">
-              The passphrase will need to be re-entered after this.
-            </span>
-          </span>
-        </label>
-
-        <div className="flex gap-3 justify-end">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onConfirm(lockServer)}
-            className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
-          >
-            Logout
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
