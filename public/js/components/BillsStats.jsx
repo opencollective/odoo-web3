@@ -69,6 +69,7 @@ export function BillsStats({
     : null;
 
   const [notSynced, setNotSynced] = useState(null);
+  const [lastSyncDate, setLastSyncDate] = useState(null);
 
   const linkedJournal = currentAddress ? journalMap[currentAddress] || null : null;
 
@@ -257,6 +258,7 @@ export function BillsStats({
         const data = await resp.json();
         if (!cancelled && resp.ok) {
           setNotSynced(data.notSynced);
+          setLastSyncDate(data.lastSyncDate || null);
         }
       } catch {
         // ignore
@@ -329,9 +331,11 @@ export function BillsStats({
         }
         setSyncStatus(parts.length > 0 ? parts.join(", ") : "Already up to date");
         setNotSynced(0);
+        setLastSyncDate(new Date().toISOString().split("T")[0]);
       } else {
         setSyncStatus("Already up to date");
         setNotSynced(0);
+        setLastSyncDate(new Date().toISOString().split("T")[0]);
       }
     } catch (err) {
       setSyncStatus(`Error: ${err.message}`);
@@ -423,10 +427,19 @@ export function BillsStats({
                   </svg>
                   {syncing ? "Syncing..." : "Sync"}
                 </button>
-                {notSynced > 0 && !syncing && !syncStatus && (
-                  <span className="text-xs text-orange-600 font-medium">
-                    {notSynced} not synced
-                  </span>
+                {!syncing && !syncStatus && (lastSyncDate || notSynced > 0) && (
+                  <div className="flex items-center gap-2 text-xs">
+                    {lastSyncDate && (
+                      <span className="text-gray-500">
+                        Last sync: {lastSyncDate}
+                      </span>
+                    )}
+                    {notSynced > 0 && (
+                      <span className="text-orange-600 font-medium">
+                        {notSynced} new tx{notSynced !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
                 )}
                 {syncStatus && (
                   <span

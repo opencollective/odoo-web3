@@ -67,6 +67,8 @@ export async function handleSyncStatusRequest(
     let journalId: number | null = null;
     let journalName: string | null = null;
 
+    let lastSyncDate: string | null = null;
+
     if (odooClient) {
       const journal = await odooClient.getJournalByBankAccount(address);
       if (journal) {
@@ -74,6 +76,14 @@ export async function handleSyncStatusRequest(
         journalName = journal.name;
         const counts = await odooClient.countJournalEntries(journal.id);
         odooCount = counts.statementLines;
+
+        // Get the date of the most recent statement line
+        if (odooCount > 0) {
+          const latest = await odooClient.getLatestTransactions(journal.id, 1);
+          if (latest.length > 0) {
+            lastSyncDate = latest[0].date;
+          }
+        }
       }
     }
 
@@ -86,6 +96,7 @@ export async function handleSyncStatusRequest(
         notSynced: Math.max(0, notSynced),
         journalId,
         journalName,
+        lastSyncDate,
       }),
       { status: 200, headers: corsHeaders }
     );
