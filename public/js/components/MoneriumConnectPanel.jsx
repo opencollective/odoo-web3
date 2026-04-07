@@ -310,6 +310,8 @@ export function MoneriumConnectPanel({ connection, onConnectionChange }) {
     const updatedConnection = {
       ...connection,
       accountAddress: account.address,
+      accountChain: account.chain || null,
+      accountSignatories: account.signatories || null,
     };
     localStorage.setItem(
       getStorageKey("monerium_connection"),

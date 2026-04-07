@@ -206,7 +206,7 @@ function MoneriumSetupStep({ onComplete }) {
   );
 }
 
-function KeystoreSetupStep({ onComplete, onSkip }) {
+function KeystoreSetupStep({ onComplete, onSkip, selectedAccount }) {
   const [passphrase, setPassphrase] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [result, setResult] = useState(null);
@@ -223,10 +223,22 @@ function KeystoreSetupStep({ onComplete, onSkip }) {
       });
       const data = await response.json();
       if (data.ok) {
-        setResult({ success: true, address: data.address });
         localStorage.setItem(getStorageKey("keystore_verified"), "true");
-        // Auto-advance after a short delay so the user sees the success
-        setTimeout(() => onComplete(), 1500);
+
+        // Check if derived address is a signer on the selected Safe account
+        let isSigner = false;
+        if (selectedAccount) {
+          const addr = data.address.toLowerCase();
+          if (selectedAccount.address.toLowerCase() === addr) {
+            isSigner = true;
+          } else if (selectedAccount.signatories?.length) {
+            isSigner = selectedAccount.signatories.some(
+              (s) => s.toLowerCase() === addr
+            );
+          }
+        }
+
+        setResult({ success: true, address: data.address, isSigner });
       } else {
         setResult({ success: false, message: data.error || "Verification failed" });
       }
@@ -243,6 +255,12 @@ function KeystoreSetupStep({ onComplete, onSkip }) {
     }
   };
 
+  const safeSettingsUrl = selectedAccount
+    ? `https://app.safe.global/settings/setup?safe=${
+        selectedAccount.chain === "gnosis" ? "gno" : "chiado"
+      }:${selectedAccount.address}`
+    : null;
+
   return (
     <div>
       <h2 className="text-xl font-semibold text-gray-900 mb-2">
@@ -250,8 +268,7 @@ function KeystoreSetupStep({ onComplete, onSkip }) {
       </h2>
       <p className="text-sm text-gray-600 mb-6">
         Your server has an encrypted private key for signing transactions.
-        Enter the passphrase to verify it works. The key will be locked again
-        after verification — you'll unlock it when you need to sign.
+        Enter the passphrase to decrypt it.
       </p>
       <div className="mb-4">
         <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -267,34 +284,70 @@ function KeystoreSetupStep({ onComplete, onSkip }) {
           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
       </div>
-      {result && (
-        <div
-          className={`mb-4 p-3 rounded text-sm ${
-            result.success
-              ? "bg-green-50 border border-green-200 text-green-800"
-              : "bg-red-50 border border-red-200 text-red-700"
-          }`}
-        >
-          {result.success ? (
-            <span>
-              Passphrase verified. Wallet address:{" "}
-              <code className="text-xs bg-green-100 px-1 py-0.5 rounded">
+
+      {result && result.success && (
+        <div className="mb-4 space-y-3">
+          <div className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+            <p className="font-medium mb-1">Passphrase verified.</p>
+            <p>
+              Wallet address:{" "}
+              <code className="bg-green-100 px-1.5 py-0.5 rounded text-xs font-mono select-all">
                 {result.address}
               </code>
-            </span>
+            </p>
+          </div>
+
+          {result.isSigner ? (
+            <div className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+              This address is a signer on the selected Safe account.
+            </div>
           ) : (
-            result.message
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
+              <p className="font-medium mb-1">
+                This address is not yet a signer on the selected Safe account.
+              </p>
+              <p>
+                Make sure this wallet address is able to sign transactions in the
+                Safe multisig of your account.{" "}
+                {safeSettingsUrl && (
+                  <a
+                    href={safeSettingsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline font-medium text-amber-900 hover:text-amber-700"
+                  >
+                    Add it as a signer in Safe settings &rarr;
+                  </a>
+                )}
+              </p>
+            </div>
           )}
         </div>
       )}
+
+      {result && !result.success && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+          {result.message}
+        </div>
+      )}
+
       <div className="flex items-center gap-3">
-        <button
-          onClick={handleVerify}
-          disabled={!passphrase || verifying}
-          className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
-        >
-          {verifying ? "Verifying..." : "Verify & Continue"}
-        </button>
+        {result?.success ? (
+          <button
+            onClick={onComplete}
+            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+          >
+            Continue
+          </button>
+        ) : (
+          <button
+            onClick={handleVerify}
+            disabled={!passphrase || verifying}
+            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+          >
+            {verifying ? "Verifying..." : "Verify"}
+          </button>
+        )}
         <button
           onClick={onSkip}
           className="px-4 py-2.5 text-sm text-gray-500 hover:text-gray-700"
@@ -645,6 +698,15 @@ export function HomePage({ navigate }) {
               onSkip={() => {
                 setStep("done");
               }}
+              selectedAccount={
+                setup.monerium?.accountAddress
+                  ? {
+                      address: setup.monerium.accountAddress,
+                      chain: setup.monerium.accountChain || null,
+                      signatories: setup.monerium.accountSignatories || null,
+                    }
+                  : null
+              }
             />
           )}
         </div>
