@@ -843,7 +843,7 @@ export class OdooClient {
     ];
 
     // Extract invoice reference from memo (e.g. "CHB/2026/00204")
-    const refMatch = memo?.match(/(.*\/2[0-9]{3}\/[0-9]{3,5})/);
+    const refMatch = memo?.match(/([A-Z][A-Z0-9]*\/2[0-9]{3}\/[0-9]{3,5})/);
     if (refMatch) {
       const ref = refMatch[1];
       const memoResults = await this.callRPC("object", "execute_kw", [
