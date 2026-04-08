@@ -576,6 +576,10 @@ export function TransactionsPage({ navigate, account }) {
         const params = new URLSearchParams();
         if (account) params.set("address", account);
         if (refresh) params.set("refresh", "true");
+        const odooParams = getOdooParams();
+        if (odooParams) {
+          for (const [k, v] of odooParams) params.set(`odoo_${k}`, v);
+        }
         const response = await fetch(`/api/monerium/transactions${params.toString() ? `?${params}` : ""}`);
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Failed to fetch");

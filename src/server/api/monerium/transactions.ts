@@ -159,10 +159,10 @@ export async function handleMoneriumTransactionsRequest(
     });
 
     // Check reconciliation status + invoice details via Odoo
-    const odooUrl = process.env.ODOO_URL || "";
-    const odooDb = process.env.ODOO_DATABASE || "";
-    const odooUser = process.env.ODOO_USERNAME || "";
-    const odooPass = process.env.ODOO_PASSWORD || "";
+    const odooUrl = url.searchParams.get("odoo_url") || process.env.ODOO_URL || "";
+    const odooDb = url.searchParams.get("odoo_db") || process.env.ODOO_DATABASE || "";
+    const odooUser = url.searchParams.get("odoo_username") || process.env.ODOO_USERNAME || "";
+    const odooPass = url.searchParams.get("odoo_password") || process.env.ODOO_PASSWORD || "";
 
     const reconciledPromise = (async () => {
       if (!odooUrl || !odooDb || !odooUser || !odooPass)
