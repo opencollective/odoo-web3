@@ -842,8 +842,10 @@ export class OdooClient {
       "payment_state", "date", "invoice_date",
     ];
 
-    // If memo looks like an invoice reference, search by name first
-    if (memo) {
+    // Extract invoice reference from memo (e.g. "CHB/2026/00204")
+    const refMatch = memo?.match(/(.*\/2[0-9]{3}\/[0-9]{3,5})/);
+    if (refMatch) {
+      const ref = refMatch[1];
       const memoResults = await this.callRPC("object", "execute_kw", [
         this.config.database,
         this.uid,
@@ -853,8 +855,8 @@ export class OdooClient {
         [[
           ["state", "=", "posted"],
           "|",
-          ["name", "=", memo],
-          ["ref", "=", memo],
+          ["name", "=", ref],
+          ["ref", "=", ref],
         ]],
         { fields, limit: 5, order: "date desc" },
       ]) as InvoiceResult[];
@@ -868,14 +870,26 @@ export class OdooClient {
     // Negative amount = outgoing payment = vendor bill; Positive = incoming = customer invoice
     const moveType = amount < 0 ? "in_invoice" : "out_invoice";
 
-    const domain: unknown[][] = [
+    const baseDomain: unknown[][] = [
       ["state", "=", "posted"],
       ["move_type", "=", moveType],
       ["amount_total", ">=", absAmount - 0.01],
       ["amount_total", "<=", absAmount + 0.01],
     ];
 
-    // If IBAN provided, resolve to partner IDs for more precise matching
+    const searchInvoices = async (domain: unknown[][]) => {
+      return await this.callRPC("object", "execute_kw", [
+        this.config.database,
+        this.uid,
+        this.config.password,
+        "account.move",
+        "search_read",
+        [domain],
+        { fields, limit: 20, order: "date desc" },
+      ]) as InvoiceResult[];
+    };
+
+    // If IBAN provided, try with partner filter first for more precise matching
     if (iban) {
       const normalizedIban = iban.replace(/\s/g, "");
       try {
@@ -894,22 +908,19 @@ export class OdooClient {
           .map((b) => (b.partner_id as [number, string])[0]);
 
         if (partnerIds.length > 0) {
-          domain.push(["partner_id", "in", partnerIds]);
+          const withIban = await searchInvoices([
+            ...baseDomain,
+            ["partner_id", "in", partnerIds],
+          ]);
+          if (withIban.length > 0) return withIban;
         }
       } catch {
         // Continue without IBAN filter
       }
     }
 
-    return await this.callRPC("object", "execute_kw", [
-      this.config.database,
-      this.uid,
-      this.config.password,
-      "account.move",
-      "search_read",
-      [domain],
-      { fields, limit: 20, order: "date desc" },
-    ]) as InvoiceResult[];
+    // Fall back to amount-only search
+    return searchInvoices(baseDomain);
   }
 
   /**
