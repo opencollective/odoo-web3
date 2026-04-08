@@ -28,6 +28,7 @@ export async function handleMatchingInvoicesRequest(
     const url = new URL(req.url);
     const amount = parseFloat(url.searchParams.get("amount") || "0");
     const iban = url.searchParams.get("iban") || undefined;
+    const memo = url.searchParams.get("memo") || undefined;
 
     if (!amount) {
       return new Response(
@@ -45,7 +46,7 @@ export async function handleMatchingInvoicesRequest(
     }
 
     const client = await authenticateOdooClient(env.url, env.db, env.user, env.pass);
-    const invoices = await client.findMatchingInvoicesByAmount(amount, iban);
+    const invoices = await client.findMatchingInvoicesByAmount(amount, iban, memo);
 
     // Enrich paid invoices with payment info
     const paidIds = invoices

@@ -806,7 +806,8 @@ export class OdooClient {
    */
   async findMatchingInvoicesByAmount(
     amount: number,
-    iban?: string
+    iban?: string,
+    memo?: string
   ): Promise<Array<{
     id: number;
     name: string;
@@ -820,6 +821,47 @@ export class OdooClient {
   }>> {
     if (!this.uid) {
       throw new Error("Not authenticated. Call authenticate() first.");
+    }
+
+    const resultType = {
+      id: 0,
+      name: "",
+      ref: false as string | false,
+      partner_id: false as [number, string] | false,
+      amount_total: 0,
+      amount_residual: 0,
+      payment_state: "",
+      date: "",
+      invoice_date: "",
+    };
+    type InvoiceResult = typeof resultType;
+
+    const fields = [
+      "id", "name", "ref", "partner_id",
+      "amount_total", "amount_residual",
+      "payment_state", "date", "invoice_date",
+    ];
+
+    // If memo looks like an invoice reference, search by name first
+    if (memo) {
+      const memoResults = await this.callRPC("object", "execute_kw", [
+        this.config.database,
+        this.uid,
+        this.config.password,
+        "account.move",
+        "search_read",
+        [[
+          ["state", "=", "posted"],
+          "|",
+          ["name", "=", memo],
+          ["ref", "=", memo],
+        ]],
+        { fields, limit: 5, order: "date desc" },
+      ]) as InvoiceResult[];
+
+      if (memoResults.length > 0) {
+        return memoResults;
+      }
     }
 
     const absAmount = Math.abs(amount);
@@ -866,26 +908,8 @@ export class OdooClient {
       "account.move",
       "search_read",
       [domain],
-      {
-        fields: [
-          "id", "name", "ref", "partner_id",
-          "amount_total", "amount_residual",
-          "payment_state", "date", "invoice_date",
-        ],
-        limit: 20,
-        order: "date desc",
-      },
-    ]) as Array<{
-      id: number;
-      name: string;
-      ref: string | false;
-      partner_id: [number, string] | false;
-      amount_total: number;
-      amount_residual: number;
-      payment_state: string;
-      date: string;
-      invoice_date: string;
-    }>;
+      { fields, limit: 20, order: "date desc" },
+    ]) as InvoiceResult[];
   }
 
   /**

@@ -219,6 +219,7 @@ function ReconcileDropdown({ tx, onReconciled }) {
       const amount = tx.kind === "redeem" ? -parseFloat(tx.amount) : parseFloat(tx.amount);
       const params = new URLSearchParams({ amount: String(amount) });
       if (tx.counterpartyIban) params.set("iban", tx.counterpartyIban);
+      if (tx.memo) params.set("memo", tx.memo);
       const odooParams = getOdooParams();
       if (odooParams) { for (const [k, v] of odooParams) params.set(k, v); }
       const resp = await fetch(`/api/odoo/matching-invoices?${params}`);
