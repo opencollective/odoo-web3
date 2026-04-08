@@ -219,6 +219,8 @@ function ReconcileDropdown({ tx, onReconciled }) {
       const amount = tx.kind === "redeem" ? -parseFloat(tx.amount) : parseFloat(tx.amount);
       const params = new URLSearchParams({ amount: String(amount) });
       if (tx.counterpartyIban) params.set("iban", tx.counterpartyIban);
+      const odooParams = getOdooParams();
+      if (odooParams) { for (const [k, v] of odooParams) params.set(k, v); }
       const resp = await fetch(`/api/odoo/matching-invoices?${params}`);
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || "Failed to find matches");
@@ -237,10 +239,22 @@ function ReconcileDropdown({ tx, onReconciled }) {
     setState("reconciling");
     setError(null);
     try {
+      const odooConn = (() => {
+        try {
+          return JSON.parse(localStorage.getItem(getStorageKey("odoo_connection")) || "{}");
+        } catch { return {}; }
+      })();
       const resp = await fetch("/api/odoo/reconcile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ txHash: tx.txHashes[0], invoiceId }),
+        body: JSON.stringify({
+          txHash: tx.txHashes[0],
+          invoiceId,
+          url: odooConn.url,
+          db: odooConn.db,
+          username: odooConn.username,
+          password: odooConn.password,
+        }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || "Reconciliation failed");

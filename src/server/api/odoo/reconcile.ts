@@ -1,12 +1,12 @@
 import { corsHeaders } from "../shared.ts";
 import { authenticateOdooClient } from "./utils.ts";
 
-function getOdooEnv() {
+function getOdooEnv(params: URLSearchParams) {
   return {
-    url: process.env.ODOO_URL || "",
-    db: process.env.ODOO_DATABASE || "",
-    user: process.env.ODOO_USERNAME || "",
-    pass: process.env.ODOO_PASSWORD || "",
+    url: params.get("url") || process.env.ODOO_URL || "",
+    db: params.get("db") || process.env.ODOO_DATABASE || "",
+    user: params.get("username") || process.env.ODOO_USERNAME || "",
+    pass: params.get("password") || process.env.ODOO_PASSWORD || "",
   };
 }
 
@@ -36,7 +36,7 @@ export async function handleMatchingInvoicesRequest(
       );
     }
 
-    const env = getOdooEnv();
+    const env = getOdooEnv(url.searchParams);
     if (!env.url || !env.db || !env.user || !env.pass) {
       return new Response(
         JSON.stringify({ error: "Odoo credentials not configured" }),
@@ -103,7 +103,7 @@ export async function handleReconcileRequest(
 
   try {
     const body = await req.json();
-    const { txHash, invoiceId } = body;
+    const { txHash, invoiceId, url: odooUrl, db, username, password } = body;
 
     if (!txHash || !invoiceId) {
       return new Response(
@@ -112,7 +112,12 @@ export async function handleReconcileRequest(
       );
     }
 
-    const env = getOdooEnv();
+    const bodyParams = new URLSearchParams();
+    if (odooUrl) bodyParams.set("url", odooUrl);
+    if (db) bodyParams.set("db", db);
+    if (username) bodyParams.set("username", username);
+    if (password) bodyParams.set("password", password);
+    const env = getOdooEnv(bodyParams);
     if (!env.url || !env.db || !env.user || !env.pass) {
       return new Response(
         JSON.stringify({ error: "Odoo credentials not configured" }),
