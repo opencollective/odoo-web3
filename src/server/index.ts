@@ -26,6 +26,7 @@ import { handleTestConnectionRequest } from "./api/opencollective/test.ts";
 import { handleFileProxyRequest } from "./api/opencollective/file.ts";
 import { handleCollectivesRequest } from "./api/opencollective/collectives.ts";
 import { handleUnlockRequest, handleUnlockStatusRequest, handleLockRequest, handleVerifyPassphraseRequest } from "./api/unlock.ts";
+import { handleSyncSettingsRequest } from "./api/sync-settings.ts";
 import { needsUnlock } from "../lib/keystore.ts";
 import { transform } from "@swc/core";
 
@@ -161,6 +162,11 @@ async function handleRequest(req: Request): Promise<Response> {
 
   if (url.pathname === "/api/monerium/transactions") {
     return handleMoneriumTransactionsRequest(req);
+  }
+
+  // Sync settings
+  if (url.pathname === "/api/sync/settings") {
+    return handleSyncSettingsRequest(req);
   }
 
   // Open Collective API endpoints
