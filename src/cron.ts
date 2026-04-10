@@ -196,7 +196,7 @@ async function main() {
   }
 
   // Odoo credentials come from environment variables
-  const odooUrl = settings.odooUrl || process.env.ODOO_URL || "";
+  const odooUrl = process.env.ODOO_URL || "";
   const odooDb = process.env.ODOO_DATABASE || "";
   const odooUser = process.env.ODOO_USERNAME || "";
   const odooPass = process.env.ODOO_PASSWORD || "";

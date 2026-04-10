@@ -14,7 +14,6 @@ export interface AccountLabels {
 export interface AppSettings {
   accounts: SyncAccount[];
   accountLabels?: AccountLabels;
-  odooUrl?: string;
   updatedAt: string;
 }
 

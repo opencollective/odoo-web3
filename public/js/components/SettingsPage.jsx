@@ -256,7 +256,6 @@ export function SettingsPage({ navigate }) {
               .filter((a) => a.label)
               .map((a) => [a.address, { label: a.label }])
           ),
-          odooUrl: odooSettings.url || undefined,
         }),
       });
       if (!resp.ok) throw new Error("Failed to save");
