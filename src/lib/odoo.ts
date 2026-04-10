@@ -3915,7 +3915,8 @@ export class OdooClient {
           status: `Enriching line ${i + 1}/${total}...`,
         });
 
-        const needsEnrichment = !line.partner_id;
+        // Skip reconciled lines — Odoo won't allow writing to posted journal entries
+        const needsEnrichment = !line.partner_id && !line.is_reconciled;
 
         if (needsEnrichment) {
           if (!name && !iban) {
