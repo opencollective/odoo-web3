@@ -14,7 +14,7 @@ export interface SyncSettings {
 }
 
 const DATA_DIR = process.env.DATA_DIR || "./data";
-const SETTINGS_PATH = `${DATA_DIR}/sync-settings.json`;
+const SETTINGS_PATH = `${DATA_DIR}/settings.json`;
 
 export async function loadSyncSettings(): Promise<SyncSettings | null> {
   try {
