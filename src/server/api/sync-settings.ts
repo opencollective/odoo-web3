@@ -4,16 +4,12 @@ import { corsHeaders } from "./shared.ts";
 export interface SyncAccount {
   address: string;
   label?: string;
+  hidden?: boolean;
   enabled: boolean;
-}
-
-export interface AccountLabels {
-  [address: string]: { label?: string; hidden?: boolean };
 }
 
 export interface AppSettings {
   accounts: SyncAccount[];
-  accountLabels?: AccountLabels;
   updatedAt: string;
 }
 
@@ -34,7 +30,7 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
   await Bun.write(SETTINGS_PATH, JSON.stringify(settings, null, 2));
 }
 
-// Alias for cron.ts backward compat
+// Alias for cron.ts
 export const loadSyncSettings = loadSettings;
 
 export async function handleSyncSettingsRequest(

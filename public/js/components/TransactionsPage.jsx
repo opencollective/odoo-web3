@@ -45,55 +45,13 @@ function timeAgo(dateStr) {
 
 // ─── Account settings (localStorage) ───────────────────────
 
-function loadAccountSettings() {
-  try {
-    const raw = localStorage.getItem(getStorageKey("account_settings"));
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-function saveAccountSettings(settings) {
-  try {
-    localStorage.setItem(getStorageKey("account_settings"), JSON.stringify(settings));
-  } catch {
-    // ignore
-  }
-  // Also persist to server
-  fetch("/api/sync/settings", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ accountLabels: settings }),
-  }).catch(() => {});
-}
-
-// Load account labels from server, merge into localStorage
-async function loadAccountSettingsFromServer() {
-  try {
-    const resp = await fetch("/api/sync/settings");
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    if (data.accountLabels && Object.keys(data.accountLabels).length > 0) {
-      // Merge server labels into localStorage (server wins for conflicts)
-      const local = loadAccountSettings();
-      const merged = { ...local, ...data.accountLabels };
-      localStorage.setItem(getStorageKey("account_settings"), JSON.stringify(merged));
-      return merged;
-    }
-  } catch {
-    // ignore
-  }
-  return null;
-}
-
-function getAccountLabel(settings, addr) {
-  return settings[addr]?.label || "";
-}
-
-function isAccountHidden(settings, addr) {
-  return !!settings[addr]?.hidden;
-}
+import {
+  loadAccountSettings,
+  loadAccountSettingsFromServer,
+  saveAccountSettings,
+  getAccountLabel,
+  isAccountHidden,
+} from "../utils/accountSettings.js";
 
 // ─── Account Edit Modal ────────────────────────────────────
 
