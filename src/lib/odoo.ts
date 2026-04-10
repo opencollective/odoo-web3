@@ -2271,7 +2271,7 @@ export class OdooClient {
       return null;
     }
   }
-  async getPartnerIdByName(partnerName: string): Promise<number | null> {
+  async getPartnerIdByName(partnerName: string): Promise<{ id: number; name: string } | "ambiguous" | null> {
     if (!this.uid) {
       throw new Error("Not authenticated. Call authenticate() first.");
     }
@@ -2286,13 +2286,13 @@ export class OdooClient {
         [[["name", "ilike", partnerName]]],
         {
           fields: ["id", "name"],
-          limit: 1,
+          limit: 3,
         },
-      ]);
+      ]) as Array<{ id: number; name: string }>;
 
-      return (result as Record<string, unknown>[]).length > 0
-        ? ((result as Record<string, unknown>[])[0].id as number)
-        : null;
+      if (result.length === 0) return null;
+      if (result.length > 1) return "ambiguous";
+      return result[0];
     } catch (error) {
       console.error("Failed to find partner:", error);
       return null;
@@ -3799,7 +3799,14 @@ export class OdooClient {
     }) => void,
     dryRun?: boolean,
     forceReconcile: boolean = true
-  ): Promise<{ enriched: number; skipped: number; newPartners: number; matchedPartners: number; reconciled: number }> {
+  ): Promise<{
+    enriched: number;
+    skipped: number;
+    newPartners: Array<{ name: string; iban?: string; id?: number }>;
+    matchedPartners: number;
+    ambiguousPartners: Array<{ name: string; account: string }>;
+    reconciled: number;
+  }> {
     if (!this.uid) {
       throw new Error("Not authenticated. Call authenticate() first.");
     }
@@ -3832,8 +3839,9 @@ export class OdooClient {
     const total = lines.length;
     let enriched = 0;
     let skipped = 0;
-    let newPartners = 0;
+    const newPartners: Array<{ name: string; iban?: string; id?: number }> = [];
     let matchedPartners = 0;
+    const ambiguousPartners: Array<{ name: string; account: string }> = [];
     let reconciled = 0;
 
     // Log sample lines for debugging (first 3)
@@ -3940,20 +3948,30 @@ export class OdooClient {
                 partnerId = await this.findPartnerByIban(iban);
               }
               if (!partnerId && name) {
-                partnerId = await this.getPartnerIdByName(name);
+                const nameResult = await this.getPartnerIdByName(name);
+                if (nameResult === "ambiguous") {
+                  // Extract account address from unique_import_id
+                  const parts = (line.unique_import_id || "").split(":");
+                  const account = parts.length >= 2 ? parts[1] : "";
+                  ambiguousPartners.push({ name, account });
+                  console.log(`Ambiguous partner match for "${name}" — skipping`);
+                } else if (nameResult) {
+                  partnerId = nameResult.id;
+                }
               }
 
               if (partnerId) {
                 matchedPartners++;
                 partnerCache.set(cacheKey, partnerId);
-              } else if (name) {
+              } else if (name && !ambiguousPartners.find(a => a.name === name)) {
                 isNewPartner = true;
-                newPartners++;
                 if (dryRun) {
                   console.log(`[DRY RUN] Would create partner "${name}"${iban ? ` with IBAN ${iban}` : ""}`);
+                  newPartners.push({ name, iban });
                 } else {
                   partnerId = await this.createPartnerWithIban(name, iban || undefined);
                   console.log(`Created partner "${name}"${iban ? ` with IBAN ${iban}` : ""} (ID: ${partnerId})`);
+                  newPartners.push({ name, iban, id: partnerId });
                   partnerCache.set(cacheKey, partnerId);
                 }
               }
@@ -4047,7 +4065,7 @@ export class OdooClient {
       }
     }
 
-    return { enriched, skipped, newPartners, matchedPartners, reconciled };
+    return { enriched, skipped, newPartners, matchedPartners, ambiguousPartners, reconciled };
   }
 
   /**
@@ -4064,7 +4082,8 @@ export class OdooClient {
     }) => void,
     dryRun?: boolean,
     forceReconcile: boolean = true,
-    recentDays: number = 0
+    recentDays: number = 0,
+    limit?: number
   ): Promise<{ reconciled: number; total: number }> {
     if (!this.uid) {
       throw new Error("Not authenticated. Call authenticate() first.");
@@ -4080,6 +4099,11 @@ export class OdooClient {
       cutoff.setDate(cutoff.getDate() - recentDays);
       domain.push(["date", ">=", cutoff.toISOString().split("T")[0]]);
     }
+    const queryOpts: Record<string, unknown> = {
+      fields: ["id", "payment_ref", "partner_id", "amount"],
+      order: "id desc",
+    };
+    if (limit && limit > 0) queryOpts.limit = limit;
     const lines = await this.callRPC("object", "execute_kw", [
       this.config.database,
       this.uid,
@@ -4087,7 +4111,7 @@ export class OdooClient {
       "account.bank.statement.line",
       "search_read",
       [domain],
-      { fields: ["id", "payment_ref", "partner_id", "amount"] },
+      queryOpts,
     ]) as Array<{
       id: number;
       payment_ref: string | false;
@@ -4682,8 +4706,11 @@ export class OdooClient {
     );
 
     // Find or create partner
-    let partnerId = await this.getPartnerIdByName(partnerName);
-    if (!partnerId) {
+    const nameResult = await this.getPartnerIdByName(partnerName);
+    let partnerId: number;
+    if (nameResult && nameResult !== "ambiguous") {
+      partnerId = nameResult.id;
+    } else {
       partnerId = await this.createPartner(partnerName, partnerAddress);
     }
 

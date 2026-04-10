@@ -1,13 +1,13 @@
 /**
  * Cron sync script — run with: bun run cron
  *
- * Reads sync settings from cache/sync-settings.json (configured via /settings UI),
- * then for each enabled account:
- *   1. Incremental blockchain sync (only new transfers since last synced block)
- *   2. Monerium enrichment (partner names, IBANs, memos)
- *   3. Reconciliation with invoices/bills
+ * By default, only syncs new blockchain transfers and enriches/reconciles them.
+ * Use --reconcile --limit N to also retry the N latest unreconciled lines per account.
  *
- * Reports per-account stats: time, new/updated transactions, reconciliations.
+ * Examples:
+ *   bun run cron                       # sync new txs only
+ *   bun run cron --reconcile           # also retry all unreconciled lines
+ *   bun run cron --reconcile --limit 5 # retry 5 latest unreconciled lines
  */
 
 import { loadSyncSettings } from "./server/api/sync-settings.ts";
@@ -29,6 +29,12 @@ const TOKEN_ADDRESS = EURE_TOKEN[CHAIN];
 const MONERIUM_CLIENT_ID = process.env.MONERIUM_CLIENT_ID || "";
 const MONERIUM_CLIENT_SECRET = process.env.MONERIUM_CLIENT_SECRET || "";
 
+// Parse CLI args
+const args = process.argv.slice(2);
+const reconcileFlag = args.includes("--reconcile");
+const limitIdx = args.indexOf("--limit");
+const reconcileLimit = limitIdx >= 0 ? parseInt(args[limitIdx + 1], 10) || 0 : 0;
+
 interface AccountResult {
   address: string;
   label: string;
@@ -36,9 +42,10 @@ interface AccountResult {
   newTransactions: number;
   skippedTransactions: number;
   moneriumEnriched: number;
-  moneriumNewPartners: number;
   moneriumMatchedPartners: number;
   moneriumReconciled: number;
+  newPartners: Array<{ name: string; iban?: string; id?: number }>;
+  ambiguousPartners: Array<{ name: string; account: string }>;
   error?: string;
 }
 
@@ -65,9 +72,10 @@ async function syncAccount(
     newTransactions: 0,
     skippedTransactions: 0,
     moneriumEnriched: 0,
-    moneriumNewPartners: 0,
     moneriumMatchedPartners: 0,
     moneriumReconciled: 0,
+    newPartners: [],
+    ambiguousPartners: [],
   };
 
   try {
@@ -125,8 +133,12 @@ async function syncAccount(
       log(`[${tag}] Already up to date, no new transfers.`);
     }
 
-    // 4. Monerium enrichment
-    if (MONERIUM_CLIENT_ID && MONERIUM_CLIENT_SECRET) {
+    // 4. Monerium enrichment + reconciliation
+    // Only run when there are new txs OR --reconcile flag is set
+    const hasNewTxs = result.newTransactions > 0;
+    const shouldEnrich = hasNewTxs || reconcileFlag;
+
+    if (shouldEnrich && MONERIUM_CLIENT_ID && MONERIUM_CLIENT_SECRET) {
       try {
         log(`[${tag}] Enriching with Monerium data...`);
         const monerium = new MoneriumClient(
@@ -138,7 +150,8 @@ async function syncAccount(
 
         const hasAddr = await monerium.hasAddress(address);
         if (hasAddr) {
-          const ordersByTxHash = await monerium.getOrdersByTxHash(address, true);
+          // Refresh cache only when there are new txs
+          const ordersByTxHash = await monerium.getOrdersByTxHash(address, hasNewTxs);
           log(`[${tag}] Found ${ordersByTxHash.size} Monerium orders with tx hashes`);
 
           const mResult = await odooClient.enrichWithMoneriumData(
@@ -149,14 +162,18 @@ async function syncAccount(
             true
           );
           result.moneriumEnriched = mResult.enriched;
-          result.moneriumNewPartners = mResult.newPartners;
           result.moneriumMatchedPartners = mResult.matchedPartners;
           result.moneriumReconciled = mResult.reconciled;
+          result.newPartners = mResult.newPartners;
+          result.ambiguousPartners = mResult.ambiguousPartners;
 
           if (mResult.enriched > 0 || mResult.reconciled > 0) {
             log(
-              `[${tag}] Monerium: ${mResult.enriched} enriched, ${mResult.matchedPartners} matched partners, ${mResult.newPartners} new partners, ${mResult.reconciled} reconciled`
+              `[${tag}] Monerium: ${mResult.enriched} enriched, ${mResult.matchedPartners} matched, ${mResult.newPartners.length} new partners, ${mResult.reconciled} reconciled`
             );
+          }
+          if (mResult.ambiguousPartners.length > 0) {
+            log(`[${tag}] ${mResult.ambiguousPartners.length} ambiguous partner match(es) skipped`);
           }
         } else {
           log(`[${tag}] Address not in Monerium account, skipping enrichment.`);
@@ -164,10 +181,27 @@ async function syncAccount(
       } catch (err) {
         log(`[${tag}] Monerium enrichment error: ${err instanceof Error ? err.message : String(err)}`);
       }
+    } else if (!shouldEnrich) {
+      log(`[${tag}] No new txs, skipping enrichment. Use --reconcile to retry unreconciled lines.`);
     }
 
-    // Reconciliation is already handled inside enrichWithMoneriumData
-    // (it reconciles all unreconciled outgoing lines, not just Monerium-matched ones)
+    // 5. If --reconcile flag, also run standalone reconciliation on recent unreconciled lines
+    if (reconcileFlag) {
+      log(`[${tag}] Reconciling${reconcileLimit ? ` (limit ${reconcileLimit})` : ""} unreconciled lines...`);
+      const reconcileResult = await odooClient.reconcileJournalLines(
+        journal.id,
+        undefined,
+        false,
+        true,
+        0, // no day limit
+        reconcileLimit || undefined
+      );
+      // Add to totals (avoid double-counting with Monerium reconciliation)
+      result.moneriumReconciled += reconcileResult.reconciled;
+      if (reconcileResult.reconciled > 0) {
+        log(`[${tag}] Reconciled: ${reconcileResult.reconciled}/${reconcileResult.total} lines`);
+      }
+    }
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err);
     log(`[${tag}] ERROR: ${result.error}`);
@@ -207,6 +241,9 @@ async function main() {
   }
 
   log(`Odoo: ${odooDb} (${odooUrl})`);
+  if (reconcileFlag) {
+    log(`Reconcile mode: retrying${reconcileLimit ? ` last ${reconcileLimit}` : " all"} unreconciled lines`);
+  }
   log(`Syncing ${enabledAccounts.length} account(s)...`);
   console.log("");
 
@@ -229,6 +266,8 @@ async function main() {
   const totalMs = Date.now() - totalStart;
   const totalNew = results.reduce((s, r) => s + r.newTransactions, 0);
   const totalReconciled = results.reduce((s, r) => s + r.moneriumReconciled, 0);
+  const allNewPartners = results.flatMap((r) => r.newPartners);
+  const allAmbiguous = results.flatMap((r) => r.ambiguousPartners);
   const errors = results.filter((r) => r.error);
 
   console.log("═══════════════════════════════════════════");
@@ -246,9 +285,25 @@ async function main() {
       if (r.skippedTransactions > 0)
         console.log(`    Skipped:      ${r.skippedTransactions}`);
       if (r.moneriumEnriched > 0)
-        console.log(`    Enriched:     ${r.moneriumEnriched} (${r.moneriumNewPartners} new partners, ${r.moneriumMatchedPartners} matched)`);
+        console.log(`    Enriched:     ${r.moneriumEnriched} (${r.moneriumMatchedPartners} matched)`);
       if (r.moneriumReconciled > 0)
         console.log(`    Reconciled:   ${r.moneriumReconciled}`);
+    }
+    console.log("");
+  }
+
+  if (allNewPartners.length > 0) {
+    console.log("  New partners created:");
+    for (const p of allNewPartners) {
+      console.log(`    - ${p.name}${p.iban ? ` (${p.iban})` : ""}${p.id ? ` [ID: ${p.id}]` : ""}`);
+    }
+    console.log("");
+  }
+
+  if (allAmbiguous.length > 0) {
+    console.log("  Ambiguous partner matches (skipped):");
+    for (const a of allAmbiguous) {
+      console.log(`    - ${a.name}${a.account ? ` (${a.account})` : ""}`);
     }
     console.log("");
   }

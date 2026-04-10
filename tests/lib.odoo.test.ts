@@ -138,8 +138,8 @@ test("import txs", async () => {
   ): Promise<number> {
     if (!name?.trim()) return 0;
 
-    const partnerId = await odooClient.getPartnerIdByName(name);
-    if (partnerId) return partnerId;
+    const nameResult = await odooClient.getPartnerIdByName(name);
+    if (nameResult && nameResult !== "ambiguous") return nameResult.id;
 
     if (dryRun) {
       console.log(`[DRY RUN] Would create partner: ${name}`);

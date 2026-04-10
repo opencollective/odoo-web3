@@ -453,10 +453,10 @@ export async function handleSyncRequest(req: Request): Promise<Response> {
                 forceReconcile
               );
 
-              console.log(`Monerium enrichment summary: enriched=${moneriumResult.enriched}, skipped=${moneriumResult.skipped}, matchedPartners=${moneriumResult.matchedPartners}, newPartners=${moneriumResult.newPartners}, reconciled=${moneriumResult.reconciled}${isDryRun ? " [DRY RUN]" : ""}`);
+              console.log(`Monerium enrichment summary: enriched=${moneriumResult.enriched}, skipped=${moneriumResult.skipped}, matchedPartners=${moneriumResult.matchedPartners}, newPartners=${moneriumResult.newPartners.length}, ambiguous=${moneriumResult.ambiguousPartners.length}, reconciled=${moneriumResult.reconciled}${isDryRun ? " [DRY RUN]" : ""}`);
               send({
                 type: "status",
-                message: `Monerium enrichment: ${moneriumResult.enriched} enriched, ${moneriumResult.skipped} skipped, ${moneriumResult.matchedPartners} partners matched, ${moneriumResult.newPartners} new partners, ${moneriumResult.reconciled} invoices reconciled${isDryRun ? " [DRY RUN]" : ""}.`,
+                message: `Monerium enrichment: ${moneriumResult.enriched} enriched, ${moneriumResult.skipped} skipped, ${moneriumResult.matchedPartners} partners matched, ${moneriumResult.newPartners.length} new partners, ${moneriumResult.reconciled} invoices reconciled${isDryRun ? " [DRY RUN]" : ""}.`,
               });
             }
           } catch (error) {
@@ -506,7 +506,7 @@ export async function handleSyncRequest(req: Request): Promise<Response> {
           moneriumRan: moneriumResult !== null,
           moneriumEnriched: moneriumResult?.enriched || 0,
           moneriumSkipped: moneriumResult?.skipped || 0,
-          moneriumNewPartners: moneriumResult?.newPartners || 0,
+          moneriumNewPartners: moneriumResult?.newPartners.length || 0,
           moneriumMatchedPartners: moneriumResult?.matchedPartners || 0,
           moneriumReconciled: moneriumResult?.reconciled || 0,
           reconciled: reconcileResult.reconciled,
