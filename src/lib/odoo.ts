@@ -3804,14 +3804,19 @@ export class OdooClient {
       throw new Error("Not authenticated. Call authenticate() first.");
     }
 
-    // Fetch all statement lines on this journal, including move_id to get the ref
+    // Fetch only statement lines that need enrichment (no partner) or reconciliation (not reconciled)
     const lines = await this.callRPC("object", "execute_kw", [
       this.config.database,
       this.uid,
       this.config.password,
       "account.bank.statement.line",
       "search_read",
-      [[["journal_id", "=", journalId]]],
+      [[
+        ["journal_id", "=", journalId],
+        "|",
+        ["partner_id", "=", false],
+        ["is_reconciled", "=", false],
+      ]],
       { fields: ["id", "payment_ref", "partner_id", "narration", "amount", "unique_import_id", "transaction_details", "is_reconciled"] },
     ]) as Array<{
       id: number;

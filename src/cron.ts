@@ -39,8 +39,6 @@ interface AccountResult {
   moneriumNewPartners: number;
   moneriumMatchedPartners: number;
   moneriumReconciled: number;
-  reconciled: number;
-  reconciledTotal: number;
   error?: string;
 }
 
@@ -70,8 +68,6 @@ async function syncAccount(
     moneriumNewPartners: 0,
     moneriumMatchedPartners: 0,
     moneriumReconciled: 0,
-    reconciled: 0,
-    reconciledTotal: 0,
   };
 
   try {
@@ -170,23 +166,8 @@ async function syncAccount(
       }
     }
 
-    // 5. Reconcile unreconciled lines with invoices (last 30 days for speed)
-    log(`[${tag}] Reconciling recent statement lines...`);
-    const reconcileResult = await odooClient.reconcileJournalLines(
-      journal.id,
-      undefined,
-      false,
-      true,
-      30
-    );
-    result.reconciled = reconcileResult.reconciled;
-    result.reconciledTotal = reconcileResult.total;
-
-    if (reconcileResult.reconciled > 0) {
-      log(
-        `[${tag}] Reconciled: ${reconcileResult.reconciled}/${reconcileResult.total} lines`
-      );
-    }
+    // Reconciliation is already handled inside enrichWithMoneriumData
+    // (it reconciles all unreconciled outgoing lines, not just Monerium-matched ones)
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err);
     log(`[${tag}] ERROR: ${result.error}`);
@@ -246,7 +227,7 @@ async function main() {
   // ── Summary ──
   const totalMs = Date.now() - totalStart;
   const totalNew = results.reduce((s, r) => s + r.newTransactions, 0);
-  const totalReconciled = results.reduce((s, r) => s + r.reconciled + r.moneriumReconciled, 0);
+  const totalReconciled = results.reduce((s, r) => s + r.moneriumReconciled, 0);
   const errors = results.filter((r) => r.error);
 
   console.log("═══════════════════════════════════════════");
@@ -266,9 +247,7 @@ async function main() {
       if (r.moneriumEnriched > 0)
         console.log(`    Enriched:     ${r.moneriumEnriched} (${r.moneriumNewPartners} new partners, ${r.moneriumMatchedPartners} matched)`);
       if (r.moneriumReconciled > 0)
-        console.log(`    Reconciled (monerium): ${r.moneriumReconciled}`);
-      if (r.reconciled > 0 || r.reconciledTotal > 0)
-        console.log(`    Reconciled:   ${r.reconciled}/${r.reconciledTotal} unreconciled lines`);
+        console.log(`    Reconciled:   ${r.moneriumReconciled}`);
     }
     console.log("");
   }
