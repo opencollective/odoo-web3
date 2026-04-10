@@ -1,5 +1,5 @@
+import { mkdir } from "node:fs/promises";
 import { corsHeaders } from "./shared.ts";
-import { readCache, writeCache } from "../../lib/cache.ts";
 
 export interface SyncAccount {
   address: string;
@@ -13,14 +13,21 @@ export interface SyncSettings {
   updatedAt: string;
 }
 
-const CACHE_KEY = "sync-settings";
+const DATA_DIR = process.env.DATA_DIR || "./data";
+const SETTINGS_PATH = `${DATA_DIR}/sync-settings.json`;
 
 export async function loadSyncSettings(): Promise<SyncSettings | null> {
-  return readCache<SyncSettings>(CACHE_KEY);
+  try {
+    const data = await Bun.file(SETTINGS_PATH).text();
+    return JSON.parse(data) as SyncSettings;
+  } catch {
+    return null;
+  }
 }
 
 export async function saveSyncSettings(settings: SyncSettings): Promise<void> {
-  await writeCache(CACHE_KEY, settings);
+  await mkdir(DATA_DIR, { recursive: true });
+  await Bun.write(SETTINGS_PATH, JSON.stringify(settings, null, 2));
 }
 
 export async function handleSyncSettingsRequest(

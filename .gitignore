@@ -6,6 +6,9 @@
 # Cache directory
 cache/
 
+# Persistent data (sync settings, etc.)
+data/
+
 # Deno
 .deno/
 
