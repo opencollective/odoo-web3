@@ -7,8 +7,13 @@ export interface SyncAccount {
   enabled: boolean;
 }
 
-export interface SyncSettings {
+export interface AccountLabels {
+  [address: string]: { label?: string; hidden?: boolean };
+}
+
+export interface AppSettings {
   accounts: SyncAccount[];
+  accountLabels?: AccountLabels;
   odooUrl?: string;
   updatedAt: string;
 }
@@ -16,25 +21,28 @@ export interface SyncSettings {
 const DATA_DIR = process.env.DATA_DIR || "./data";
 const SETTINGS_PATH = `${DATA_DIR}/settings.json`;
 
-export async function loadSyncSettings(): Promise<SyncSettings | null> {
+export async function loadSettings(): Promise<AppSettings | null> {
   try {
     const data = await Bun.file(SETTINGS_PATH).text();
-    return JSON.parse(data) as SyncSettings;
+    return JSON.parse(data) as AppSettings;
   } catch {
     return null;
   }
 }
 
-export async function saveSyncSettings(settings: SyncSettings): Promise<void> {
+export async function saveSettings(settings: AppSettings): Promise<void> {
   await mkdir(DATA_DIR, { recursive: true });
   await Bun.write(SETTINGS_PATH, JSON.stringify(settings, null, 2));
 }
+
+// Alias for cron.ts backward compat
+export const loadSyncSettings = loadSettings;
 
 export async function handleSyncSettingsRequest(
   req: Request
 ): Promise<Response> {
   if (req.method === "GET") {
-    const settings = await loadSyncSettings();
+    const settings = await loadSettings();
     return new Response(JSON.stringify(settings || { accounts: [] }), {
       status: 200,
       headers: corsHeaders,
@@ -44,12 +52,14 @@ export async function handleSyncSettingsRequest(
   if (req.method === "POST") {
     try {
       const body = await req.json();
-      const settings: SyncSettings = {
-        accounts: body.accounts || [],
-        odooUrl: body.odooUrl || undefined,
+      // Merge with existing settings to preserve fields not sent
+      const existing = await loadSettings();
+      const settings: AppSettings = {
+        ...existing,
+        ...body,
         updatedAt: new Date().toISOString(),
       };
-      await saveSyncSettings(settings);
+      await saveSettings(settings);
       return new Response(JSON.stringify(settings), {
         status: 200,
         headers: corsHeaders,

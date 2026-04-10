@@ -60,6 +60,31 @@ function saveAccountSettings(settings) {
   } catch {
     // ignore
   }
+  // Also persist to server
+  fetch("/api/sync/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ accountLabels: settings }),
+  }).catch(() => {});
+}
+
+// Load account labels from server, merge into localStorage
+async function loadAccountSettingsFromServer() {
+  try {
+    const resp = await fetch("/api/sync/settings");
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (data.accountLabels && Object.keys(data.accountLabels).length > 0) {
+      // Merge server labels into localStorage (server wins for conflicts)
+      const local = loadAccountSettings();
+      const merged = { ...local, ...data.accountLabels };
+      localStorage.setItem(getStorageKey("account_settings"), JSON.stringify(merged));
+      return merged;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 function getAccountLabel(settings, addr) {
@@ -564,6 +589,12 @@ export function TransactionsPage({ navigate, account }) {
   const [error, setError] = useState(null);
   const [cachedAt, setCachedAt] = useState(null);
   const [accountSettings, setAccountSettings] = useState(loadAccountSettings);
+  // Load server-side labels on mount
+  useEffect(() => {
+    loadAccountSettingsFromServer().then((merged) => {
+      if (merged) setAccountSettings(merged);
+    });
+  }, []);
   const [showHidden, setShowHidden] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
   const [previewInvoice, setPreviewInvoice] = useState(null);

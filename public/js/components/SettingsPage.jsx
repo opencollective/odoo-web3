@@ -189,6 +189,7 @@ export function SettingsPage({ navigate }) {
         ]);
         const settings = await settingsResp.json();
         const savedAccounts = settings.accounts || [];
+        const accountLabels = settings.accountLabels || {};
 
         let moneriumAccounts = [];
         if (accountsResp.ok) {
@@ -198,9 +199,10 @@ export function SettingsPage({ navigate }) {
         // Merge: keep saved state for known accounts, add new ones as disabled
         const merged = moneriumAccounts.map((acc) => {
           const saved = savedAccounts.find((s) => s.address.toLowerCase() === acc.address.toLowerCase());
+          const serverLabel = accountLabels[acc.address]?.label;
           return {
             address: acc.address,
-            label: saved?.label || "",
+            label: saved?.label || serverLabel || "",
             enabled: saved?.enabled || false,
             balance: acc.balance,
           };
@@ -249,6 +251,11 @@ export function SettingsPage({ navigate }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           accounts: syncAccounts.map(({ address, label, enabled }) => ({ address, label, enabled })),
+          accountLabels: Object.fromEntries(
+            syncAccounts
+              .filter((a) => a.label)
+              .map((a) => [a.address, { label: a.label }])
+          ),
           odooUrl: odooSettings.url || undefined,
         }),
       });
