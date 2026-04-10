@@ -321,6 +321,9 @@ if (!process.env.PRIVATE_KEY_ENCRYPTED) {
 console.log(
   `🚀 Server running at http://localhost:${PORT}/ in ${ENV} environment`
 );
+if (process.env.ODOO_URL || process.env.ODOO_DATABASE) {
+  console.log(`📦 Odoo: ${process.env.ODOO_DATABASE || "?"} (${process.env.ODOO_URL || "?"})`);
+}
 if (needsUnlock()) {
   console.log("🔒 Signing: PRIVATE_KEY_ENCRYPTED configured — unlock required via /api/unlock");
 } else {

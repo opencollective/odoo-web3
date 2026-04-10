@@ -206,7 +206,8 @@ async function main() {
     process.exit(1);
   }
 
-  log(`Syncing ${enabledAccounts.length} account(s) on ${odooUrl}...`);
+  log(`Odoo: ${odooDb} (${odooUrl})`);
+  log(`Syncing ${enabledAccounts.length} account(s)...`);
   console.log("");
 
   const results: AccountResult[] = [];
