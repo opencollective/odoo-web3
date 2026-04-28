@@ -1,36 +1,30 @@
 const GRAPHQL_ENDPOINT = "https://api.opencollective.com/graphql/v2";
 
-const EXPENSES_QUERY = `
-query GetExpenses($slug: String!, $limit: Int, $offset: Int, $status: [ExpenseStatusFilter]) {
-  account(slug: $slug) {
+const HOST_EXPENSES_QUERY = `
+query GetHostExpenses($hostSlug: String!, $limit: Int, $offset: Int, $status: [ExpenseStatusFilter]) {
+  host(slug: $hostSlug) {
     name
     slug
-    stats {
-      balance {
-        valueInCents
-        currency
-      }
-    }
   }
-  all: expenses(account: { slug: $slug }, limit: 1) {
+  all: expenses(host: { slug: $hostSlug }, limit: 1) {
     totalCount
   }
-  pending: expenses(account: { slug: $slug }, limit: 1, status: [PENDING]) {
+  pending: expenses(host: { slug: $hostSlug }, limit: 1, status: [PENDING]) {
     totalCount
   }
-  approved: expenses(account: { slug: $slug }, limit: 1, status: [APPROVED]) {
+  approved: expenses(host: { slug: $hostSlug }, limit: 1, status: [APPROVED]) {
     totalCount
   }
-  paid: expenses(account: { slug: $slug }, limit: 1, status: [PAID]) {
+  paid: expenses(host: { slug: $hostSlug }, limit: 1, status: [PAID]) {
     totalCount
   }
-  rejected: expenses(account: { slug: $slug }, limit: 1, status: [REJECTED]) {
+  rejected: expenses(host: { slug: $hostSlug }, limit: 1, status: [REJECTED]) {
     totalCount
   }
-  processing: expenses(account: { slug: $slug }, limit: 1, status: [PROCESSING]) {
+  processing: expenses(host: { slug: $hostSlug }, limit: 1, status: [PROCESSING]) {
     totalCount
   }
-  expenses(account: { slug: $slug }, limit: $limit, offset: $offset, status: $status) {
+  expenses(host: { slug: $hostSlug }, limit: $limit, offset: $offset, status: $status) {
     totalCount
     nodes {
       id
@@ -41,6 +35,32 @@ query GetExpenses($slug: String!, $limit: Int, $offset: Int, $status: [ExpenseSt
       createdAt
       amount
       currency
+      account {
+        name
+        slug
+        imageUrl
+        type
+        ... on AccountWithParent {
+          parent {
+            name
+            slug
+          }
+        }
+        members(role: [ADMIN], limit: 1) {
+          nodes {
+            account {
+              name
+              slug
+            }
+          }
+        }
+        stats {
+          balance {
+            valueInCents
+            currency
+          }
+        }
+      }
       payee {
         name
         slug
@@ -78,7 +98,7 @@ const corsHeaders = {
   "Content-Type": "application/json",
 };
 
-export async function handleExpensesRequest(req: Request): Promise<Response> {
+export async function handleHostExpensesRequest(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -99,21 +119,14 @@ export async function handleExpensesRequest(req: Request): Promise<Response> {
   }
 
   const url = new URL(req.url);
-  const slug = url.searchParams.get("slug");
+  const hostSlug = url.searchParams.get("hostSlug") || "citizenspring-asbl";
   const limit = parseInt(url.searchParams.get("limit") || "50");
   const offset = parseInt(url.searchParams.get("offset") || "0");
   const status = url.searchParams.get("status") || null;
 
-  if (!slug) {
-    return new Response(
-      JSON.stringify({ error: "Missing collective slug" }),
-      { status: 400, headers: corsHeaders }
-    );
-  }
-
   try {
     const variables: Record<string, unknown> = {
-      slug,
+      hostSlug,
       limit,
       offset,
     };
@@ -129,7 +142,7 @@ export async function handleExpensesRequest(req: Request): Promise<Response> {
         "Api-Key": apiKey,
       },
       body: JSON.stringify({
-        query: EXPENSES_QUERY,
+        query: HOST_EXPENSES_QUERY,
         variables,
       }),
     });
@@ -152,10 +165,10 @@ export async function handleExpensesRequest(req: Request): Promise<Response> {
       headers: corsHeaders,
     });
   } catch (error) {
-    console.error("Failed to fetch expenses:", error);
+    console.error("Failed to fetch host expenses:", error);
     return new Response(
       JSON.stringify({
-        error: error instanceof Error ? error.message : "Failed to fetch expenses",
+        error: error instanceof Error ? error.message : "Failed to fetch host expenses",
       }),
       { status: 500, headers: corsHeaders }
     );

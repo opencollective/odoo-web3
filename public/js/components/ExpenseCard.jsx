@@ -4,6 +4,8 @@ import {
   getSelectedMoneriumAccount,
   setSelectedMoneriumAccount,
   getOpenCollectiveApiKey,
+  markExpensePaidLocal,
+  isExpensePaidLocal,
 } from "../utils/storage.js";
 import {
   getExpenseIBAN,
@@ -12,6 +14,9 @@ import {
   getStatusColor,
   markExpenseAsPaid,
   getExpenseAccountHolder,
+  getExpensePayoutAddress,
+  getExpenseBIC,
+  getExpensePayoutEmail,
 } from "../services/opencollective.js";
 import { XIcon, ExternalLinkIcon, EyeIcon } from "./icons.jsx";
 import { AttachmentSidebar } from "./AttachmentSidebar.jsx";
@@ -26,19 +31,28 @@ export function ExpenseCard({
   onStatusUpdate,
   collectiveBalance = 0,
   collectiveSlug = "",
+  collectiveName = null,
+  parentCollective = null,
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState(null);
-  const [paySuccess, setPaySuccess] = useState(null);
-  const [selectedAccountAddress, setSelectedAccountAddress] = useState("");
-  const [memo, setMemo] = useState(
-    `${collectiveSlug} expense ${expense.legacyId || expense.id}`
+  const [paySuccess, setPaySuccess] = useState(() =>
+    isExpensePaidLocal("oc", expense.id) ? "Already paid" : null
   );
+  const [selectedAccountAddress, setSelectedAccountAddress] = useState("");
+  const memoBase = `${collectiveSlug} expense ${expense.legacyId || expense.id}`;
+  const [memo, setMemo] = useState(memoBase);
   const [markingPaid, setMarkingPaid] = useState(false);
   const [forcePayment, setForcePayment] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState(null);
+
+  // Odoo integration state
+  const [odooLookup, setOdooLookup] = useState(null); // { employee, expense, odooUrl }
+  const [odooLoading, setOdooLoading] = useState(false);
+  const [odooAction, setOdooAction] = useState(null); // "creating-employee" | "creating-expense"
+  const [odooError, setOdooError] = useState(null);
 
   const iban = getExpenseIBAN(expense);
   const expenseAmount = expense.amount || 0; // in cents
@@ -86,6 +100,175 @@ export function ExpenseCard({
 
     return attachments;
   }, [expense.attachedFiles, expense.items]);
+
+  // Odoo lookup when expanded
+  useEffect(() => {
+    if (!expanded || odooLookup) return;
+    const lookup = async () => {
+      setOdooLoading(true);
+      setOdooError(null);
+      try {
+        const accountHolder = getExpenseAccountHolder(expense);
+        const lookupName = accountHolder?.name || expense.payee?.name || "";
+        const params = new URLSearchParams({
+          payeeName: lookupName,
+          ocExpenseId: String(expense.legacyId || expense.id),
+        });
+        const res = await fetch(`/api/odoo/expense-sync?${params}`);
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || "Odoo lookup failed");
+        }
+        setOdooLookup(await res.json());
+      } catch (err) {
+        setOdooError(err.message);
+      } finally {
+        setOdooLoading(false);
+      }
+    };
+    lookup();
+  }, [expanded]);
+
+  // Prepend "CHB Expense <odoo-id>" to memo once the Odoo lookup resolves a linked expense,
+  // unless the user has already edited the memo away from its default.
+  useEffect(() => {
+    const odooExpenseId = odooLookup?.expense?.id;
+    if (!odooExpenseId) return;
+    const withPrefix = `CHB Expense ${odooExpenseId} - ${memoBase}`;
+    setMemo((prev) => (prev === memoBase ? withPrefix : prev));
+  }, [odooLookup?.expense?.id, memoBase]);
+
+  const handleCreateEmployee = async () => {
+    setOdooAction("creating-employee");
+    setOdooError(null);
+    try {
+      const accountHolder = getExpenseAccountHolder(expense);
+      const address = getExpensePayoutAddress(expense);
+      const employeeName = accountHolder?.name || expense.payee?.name;
+      const department = collectiveName
+        ? (parentCollective ? `${parentCollective.name} › ${collectiveName}` : collectiveName)
+        : undefined;
+
+      const res = await fetch("/api/odoo/expense-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create-employee",
+          name: employeeName,
+          iban: iban || undefined,
+          accountHolderName: employeeName,
+          department,
+          email: expense.payee?.email || undefined,
+          address: address || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create employee");
+      setOdooLookup((prev) => ({ ...prev, employee: data.employee }));
+    } catch (err) {
+      setOdooError(err.message);
+    } finally {
+      setOdooAction(null);
+    }
+  };
+
+  const handleSyncEmployee = async () => {
+    if (!odooLookup?.employee?.id) return;
+    setOdooAction("syncing-employee");
+    setOdooError(null);
+    try {
+      const accountHolder = getExpenseAccountHolder(expense);
+      const address = getExpensePayoutAddress(expense);
+      const bic = getExpenseBIC(expense);
+      const email = getExpensePayoutEmail(expense);
+      const department = collectiveName
+        ? (parentCollective ? `${parentCollective.name} › ${collectiveName}` : collectiveName)
+        : undefined;
+      const firstAdmin = expense.account?.members?.nodes?.[0]?.account;
+
+      const res = await fetch("/api/odoo/expense-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "sync-employee",
+          employeeId: odooLookup.employee.id,
+          email: email || undefined,
+          iban: iban || undefined,
+          bic: bic || undefined,
+          accountHolderName: accountHolder?.name || expense.payee?.name,
+          address: address || undefined,
+          department,
+          managerName: firstAdmin?.name || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to sync employee");
+      setOdooLookup((prev) => ({ ...prev, employee: data.employee }));
+    } catch (err) {
+      setOdooError(err.message);
+    } finally {
+      setOdooAction(null);
+    }
+  };
+
+  const handleCreateExpense = async () => {
+    if (!odooLookup?.employee?.id) return;
+    setOdooAction("creating-expense");
+    setOdooError(null);
+    try {
+      // Build items with per-item attachments (receipt URLs)
+      const items = (expense.items && expense.items.length > 0)
+        ? expense.items.map((item) => ({
+            description: item.description || expense.description,
+            amount: item.amount || expense.amount,
+            date: expense.createdAt?.split("T")[0],
+            attachments: item.url ? [{ url: item.url, name: item.description || "Receipt" }] : [],
+          }))
+        : [{ description: expense.description, amount: expense.amount, date: expense.createdAt?.split("T")[0], attachments: [] }];
+
+      // Expense-level attached files (not tied to a specific item)
+      const attachments = (expense.attachedFiles || [])
+        .filter((f) => f.url)
+        .map((f) => ({ url: f.url, name: f.name || "Attachment" }));
+
+      const res = await fetch("/api/odoo/expense-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create-expense",
+          employeeId: odooLookup.employee.id,
+          description: expense.description,
+          ocExpenseId: expense.legacyId || expense.id,
+          ocExpenseUrl: collectiveSlug && expense.legacyId
+            ? `https://opencollective.com/${collectiveSlug}/expenses/${expense.legacyId}`
+            : undefined,
+          items,
+          attachments,
+          currency: expense.currency,
+          ocApiKey: getOpenCollectiveApiKey(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok && res.status !== 409) throw new Error(data.error || "Failed to create expense");
+      // 409 means already exists — still update the lookup
+      const expenseResult = data.expense || { id: data.expenseIds?.[0] };
+      setOdooLookup((prev) => ({
+        ...prev,
+        expense: expenseResult,
+        sheetId: data.sheetId,
+      }));
+    } catch (err) {
+      setOdooError(err.message);
+    } finally {
+      setOdooAction(null);
+    }
+  };
+
+  const odooUrl = odooLookup?.odooUrl || "";
+  const odooEmployeeUrl = odooLookup?.employee ? `${odooUrl}/web#id=${odooLookup.employee.id}&model=hr.employee&view_type=form` : null;
+  const odooExpenseUrl = odooLookup?.expense
+    ? `${odooUrl}/web#id=${odooLookup.expense.id}&model=hr.expense&view_type=form`
+    : null;
 
   // Set initial selected account
   useEffect(() => {
@@ -189,6 +372,9 @@ export function ExpenseCard({
 
       console.log("Payment created:", result);
 
+      // Record locally first so a reload/second-tab can't re-pay this expense.
+      markExpensePaidLocal("oc", expense.id);
+
       // Mark as paid on Open Collective
       setMarkingPaid(true);
       try {
@@ -259,13 +445,23 @@ export function ExpenseCard({
               >
                 {expense.status}
               </span>
-              {expense.payoutMethod?.type && (
+              {expense.payoutMethod?.type && expense.payoutMethod.type !== "BANK_ACCOUNT" && (
                 <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
                   {expense.payoutMethod.type.replace(/_/g, " ")}
                 </span>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
+              {collectiveName && (
+                <span className="inline-flex items-center gap-1 text-purple-700 bg-purple-50 px-2 py-0.5 rounded text-xs font-medium">
+                  {parentCollective ? `${parentCollective.name} › ` : ""}{collectiveName}
+                  {collectiveBalance > 0 && (
+                    <span className="text-purple-500 font-normal">
+                      ({new Intl.NumberFormat("en-US", { style: "currency", currency: expense.currency || "EUR" }).format(collectiveBalance / 100)})
+                    </span>
+                  )}
+                </span>
+              )}
               <span>{formatDate(expense.createdAt)}</span>
               <span className="truncate max-w-[300px]">
                 {expense.description}
@@ -418,6 +614,88 @@ export function ExpenseCard({
               </div>
             </div>
           )}
+
+          {/* Odoo Integration */}
+          <div className="border-t border-gray-100 pt-4">
+            <span className="block text-gray-500 text-xs uppercase tracking-wide mb-2">
+              Odoo
+            </span>
+            {odooLoading && (
+              <span className="text-xs text-gray-400">Looking up in Odoo...</span>
+            )}
+            {odooError && (
+              <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded px-3 py-2 mb-2">
+                {odooError}
+              </div>
+            )}
+            {odooLookup && (
+              <div className="flex flex-wrap gap-4">
+                {/* Employee status */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">Employee:</span>
+                  {odooLookup.employee ? (
+                    <div className="inline-flex items-center gap-1">
+                      <a
+                        href={odooEmployeeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded hover:bg-green-100"
+                      >
+                        <span>{odooLookup.employee.name}</span>
+                        <ExternalLinkIcon />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleSyncEmployee(); }}
+                        disabled={!!odooAction}
+                        className="inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded hover:bg-blue-100 disabled:opacity-50"
+                        title="Sync employee details (email, address, bank account, department, manager) from this expense"
+                      >
+                        {odooAction === "syncing-employee" ? "Syncing..." : "Sync"}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleCreateEmployee(); }}
+                      disabled={!!odooAction}
+                      className="inline-flex items-center gap-1 text-xs text-orange-700 bg-orange-50 border border-orange-200 px-2 py-1 rounded hover:bg-orange-100 disabled:opacity-50"
+                    >
+                      {odooAction === "creating-employee" ? "Creating..." : `Create "${getExpenseAccountHolder(expense)?.name || expense.payee?.name}"`}
+                    </button>
+                  )}
+                </div>
+                {/* Expense status */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">Expense:</span>
+                  {odooLookup.expense ? (
+                    <a
+                      href={odooExpenseUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded hover:bg-green-100"
+                    >
+                      <span>View in Odoo</span>
+                      <ExternalLinkIcon />
+                    </a>
+                  ) : odooLookup.employee ? (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleCreateExpense(); }}
+                      disabled={!!odooAction}
+                      className="inline-flex items-center gap-1 text-xs text-orange-700 bg-orange-50 border border-orange-200 px-2 py-1 rounded hover:bg-orange-100 disabled:opacity-50"
+                    >
+                      {odooAction === "creating-expense" ? "Creating..." : "Create in Odoo"}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-gray-400">Create employee first</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="flex flex-wrap gap-3 pt-2">
             {allAttachments.length > 0 && (

@@ -23,22 +23,6 @@ function safeUrl(addr) {
   return `https://app.safe.global/transactions/history?safe=gno:${addr}`;
 }
 
-function getOdooParams() {
-  try {
-    const stored = localStorage.getItem(getStorageKey("odoo_connection"));
-    if (!stored) return null;
-    const conn = JSON.parse(stored);
-    const params = new URLSearchParams();
-    if (conn.url) params.append("url", conn.url);
-    if (conn.db) params.append("db", conn.db);
-    if (conn.username) params.append("username", conn.username);
-    if (conn.password) params.append("password", conn.password);
-    return params;
-  } catch {
-    return null;
-  }
-}
-
 export function BillsStats({
   invoices,
   moneriumConnection,
@@ -49,8 +33,6 @@ export function BillsStats({
   const [transfersLoading, setTransfersLoading] = useState(false);
   // Map of address -> journal object
   const [journalMap, setJournalMap] = useState({});
-  const [syncing, setSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectError, setReconnectError] = useState(null);
 
@@ -67,11 +49,6 @@ export function BillsStats({
   const balance = selectedAccount
     ? parseFloat(selectedAccount.balance || "0")
     : null;
-
-  const [notSynced, setNotSynced] = useState(null);
-  const [lastSyncDate, setLastSyncDate] = useState(null);
-
-  const linkedJournal = currentAddress ? journalMap[currentAddress] || null : null;
 
   const handleJournalChange = useCallback(
     (journal) => {
@@ -108,7 +85,6 @@ export function BillsStats({
     // Reset transfer stats for new account
     setPaidThisMonth(null);
     setPaidLastMonth(null);
-    setSyncStatus(null);
   };
 
   // Calculate total to pay from ready-to-pay invoices
@@ -245,105 +221,6 @@ export function BillsStats({
     }
   }, []);
 
-  // Fetch sync status when journal is linked
-  useEffect(() => {
-    if (!currentAddress || !linkedJournal) return;
-    let cancelled = false;
-    const checkStatus = async () => {
-      try {
-        const params = getOdooParams();
-        if (!params) return;
-        params.append("address", currentAddress);
-        const resp = await fetch(`/api/odoo/sync-status?${params.toString()}`);
-        const data = await resp.json();
-        if (!cancelled && resp.ok) {
-          setNotSynced(data.notSynced);
-          setLastSyncDate(data.lastSyncDate || null);
-        }
-      } catch {
-        // ignore
-      }
-    };
-    checkStatus();
-    return () => { cancelled = true; };
-  }, [currentAddress, linkedJournal]);
-
-  const handleSync = useCallback(async () => {
-    if (!currentAddress || !linkedJournal) return;
-
-    const params = getOdooParams();
-    if (!params) return;
-
-    setSyncing(true);
-    setSyncStatus(null);
-
-    try {
-      const response = await fetch(`/api/odoo/sync?${params.toString()}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          address: currentAddress,
-          enrichMonerium: true,
-        }),
-      });
-
-      // Consume SSE stream
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let finalResult = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          const dataLine = line.trim();
-          if (!dataLine.startsWith("data: ")) continue;
-          try {
-            const data = JSON.parse(dataLine.slice(6));
-            if (data.type === "done") {
-              finalResult = data;
-            } else if (data.type === "error") {
-              throw new Error(data.details || data.error);
-            }
-          } catch (e) {
-            if (e instanceof Error && e.message !== "Unexpected end of JSON input") throw e;
-          }
-        }
-      }
-
-      if (finalResult) {
-        const parts = [];
-        if (finalResult.synced > 0) {
-          parts.push(`${finalResult.synced} synced`);
-        }
-        if (finalResult.moneriumEnriched > 0) {
-          parts.push(`${finalResult.moneriumEnriched} enriched`);
-        }
-        if (finalResult.moneriumReconciled > 0 || finalResult.reconciled > 0) {
-          const total = (finalResult.moneriumReconciled || 0) + (finalResult.reconciled || 0);
-          parts.push(`${total} reconciled`);
-        }
-        setSyncStatus(parts.length > 0 ? parts.join(", ") : "Already up to date");
-        setNotSynced(0);
-        setLastSyncDate(new Date().toISOString().split("T")[0]);
-      } else {
-        setSyncStatus("Already up to date");
-        setNotSynced(0);
-        setLastSyncDate(new Date().toISOString().split("T")[0]);
-      }
-    } catch (err) {
-      setSyncStatus(`Error: ${err.message}`);
-    } finally {
-      setSyncing(false);
-    }
-  }, [currentAddress, linkedJournal]);
-
   const hasAccount = Boolean(currentAddress);
   const multipleAccounts = availableAccounts?.length > 1;
 
@@ -405,55 +282,6 @@ export function BillsStats({
                 onJournalChange={handleJournalChange}
               />
             </div>
-            {linkedJournal && (
-              <div className="mt-2 flex items-center gap-2">
-                <button
-                  onClick={handleSync}
-                  disabled={syncing}
-                  className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded disabled:opacity-50 flex items-center gap-1"
-                >
-                  <svg
-                    className={`w-3 h-3 ${syncing ? "animate-spin" : ""}`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                    />
-                  </svg>
-                  {syncing ? "Syncing..." : "Sync"}
-                </button>
-                {!syncing && !syncStatus && (lastSyncDate || notSynced > 0) && (
-                  <div className="flex items-center gap-2 text-xs">
-                    {lastSyncDate && (
-                      <span className="text-gray-500">
-                        Last sync: {lastSyncDate}
-                      </span>
-                    )}
-                    {notSynced > 0 && (
-                      <span className="text-orange-600 font-medium">
-                        {notSynced} new tx{notSynced !== 1 ? "s" : ""}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {syncStatus && (
-                  <span
-                    className={`text-xs ${
-                      syncStatus.startsWith("Error")
-                        ? "text-red-500"
-                        : "text-green-600"
-                    }`}
-                  >
-                    {syncStatus}
-                  </span>
-                )}
-              </div>
-            )}
           </div>
         ) : availableAccounts?.length > 0 ? (
           <div>

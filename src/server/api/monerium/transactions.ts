@@ -243,6 +243,8 @@ export async function handleMoneriumTransactionsRequest(
           amountTotal: invoice.amountTotal,
           pdfUrl: invoice.pdfUrl,
           attachments: invoice.attachments,
+          type: invoice.type,
+          openModel: invoice.openModel,
         } : null,
         odooUrl: isReconciled && invoice ? odooUrl : null,
         txHashes,

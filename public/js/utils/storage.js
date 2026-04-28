@@ -103,6 +103,83 @@ export const getOpenCollectiveCollective = () => {
   }
 };
 
+// Paid expenses (by source): avoids double-paying after reload.
+// Scoped to current environment via getStorageKey.
+const paidExpensesKey = () => getStorageKey("paid_expenses");
+
+const readPaidExpenses = () => {
+  try {
+    const stored = localStorage.getItem(paidExpensesKey());
+    if (!stored) return { oc: [], odoo: [] };
+    const parsed = JSON.parse(stored);
+    return {
+      oc: Array.isArray(parsed.oc) ? parsed.oc : [],
+      odoo: Array.isArray(parsed.odoo) ? parsed.odoo : [],
+    };
+  } catch {
+    return { oc: [], odoo: [] };
+  }
+};
+
+export const markExpensePaidLocal = (source, id) => {
+  if (source !== "oc" && source !== "odoo") return;
+  if (id == null) return;
+  try {
+    const state = readPaidExpenses();
+    const list = state[source];
+    const key = String(id);
+    if (!list.includes(key)) {
+      list.push(key);
+      localStorage.setItem(paidExpensesKey(), JSON.stringify(state));
+    }
+  } catch (err) {
+    console.error("Failed to mark expense as paid locally:", err);
+  }
+};
+
+export const isExpensePaidLocal = (source, id) => {
+  if (source !== "oc" && source !== "odoo") return false;
+  if (id == null) return false;
+  const state = readPaidExpenses();
+  return state[source].includes(String(id));
+};
+
+// Imported OC expenses (→ Odoo): `{ [ocExpenseId]: odooExpenseId }`.
+// Scoped to current environment via getStorageKey.
+const importedOCKey = () => getStorageKey("imported_oc_expenses");
+
+const readImportedOC = () => {
+  try {
+    const stored = localStorage.getItem(importedOCKey());
+    if (!stored) return {};
+    const parsed = JSON.parse(stored);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+export const markOCExpenseImported = (ocExpenseId, odooExpenseId) => {
+  if (ocExpenseId == null || odooExpenseId == null) return;
+  try {
+    const map = readImportedOC();
+    map[String(ocExpenseId)] = odooExpenseId;
+    localStorage.setItem(importedOCKey(), JSON.stringify(map));
+  } catch (err) {
+    console.error("Failed to mark OC expense as imported:", err);
+  }
+};
+
+export const getOCExpenseImportedId = (ocExpenseId) => {
+  if (ocExpenseId == null) return null;
+  const map = readImportedOC();
+  const val = map[String(ocExpenseId)];
+  return typeof val === "number" ? val : null;
+};
+
+export const isOCExpenseImported = (ocExpenseId) =>
+  getOCExpenseImportedId(ocExpenseId) != null;
+
 export const setOpenCollectiveCollective = (slug) => {
   try {
     if (slug) {

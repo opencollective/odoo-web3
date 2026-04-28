@@ -4,10 +4,10 @@ import { MonthlyInvoicesView } from "./MonthlyInvoicesView.jsx";
 import { SettingsPage } from "./SettingsPage.jsx";
 import { CollectiveExpensesPage } from "./CollectiveExpensesPage.jsx";
 import { CollectivesPage } from "./CollectivesPage.jsx";
+import { ExpensesPage } from "./ExpensesPage.jsx";
+import { ImportOpenCollectivePage } from "./ImportOpenCollectivePage.jsx";
 import { HomePage } from "./HomePage.jsx";
 import { TransactionsPage } from "./TransactionsPage.jsx";
-import { OdooSyncPage } from "./OdooSyncPage.jsx";
-import { OdooDoctorPage } from "./OdooDoctorPage.jsx";
 import { ContactsPage } from "./ContactsPage.jsx";
 import { SandboxBanner } from "./SandboxBanner.js";
 import { Router } from "./Router.js";
@@ -61,14 +61,14 @@ export function RootApp() {
             );
           }
 
-          // Match /odoo/sync - Blockchain sync testing page
-          if (currentPath === "/odoo/sync") {
-            return <OdooSyncPage navigate={navigate} />;
+          // Match /expenses/import/opencollective - Import OC expenses into Odoo
+          if (currentPath === "/expenses/import/opencollective") {
+            return <ImportOpenCollectivePage navigate={navigate} />;
           }
 
-          // Match /odoo/doctor - Journal health check
-          if (currentPath === "/odoo/doctor") {
-            return <OdooDoctorPage navigate={navigate} />;
+          // Match /expenses - All expenses across hosted collectives
+          if (currentPath === "/expenses") {
+            return <ExpensesPage navigate={navigate} />;
           }
 
           // Match /collectives - List of hosted collectives

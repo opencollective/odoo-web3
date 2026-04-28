@@ -412,6 +412,49 @@ function Dashboard({ navigate }) {
         </button>
 
         <button
+          onClick={() => navigate("/expenses")}
+          className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 hover:shadow-md transition-shadow text-left group"
+        >
+          <div className="flex items-center gap-4 mb-4">
+            <div className="p-3 rounded-lg bg-orange-100 text-orange-600 group-hover:bg-orange-200 transition-colors">
+              <svg
+                className="w-8 h-8"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900">Expenses</h2>
+          </div>
+          <p className="text-gray-600 mb-4">
+            Pay approved Open Collective and Odoo expenses
+          </p>
+          <div className="flex items-center text-orange-600 font-medium">
+            Go to Expenses
+            <svg
+              className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+          </div>
+        </button>
+
+        <button
           onClick={() => navigate("/transactions")}
           className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 hover:shadow-md transition-shadow text-left group"
         >
@@ -682,7 +725,7 @@ export function HomePage({ navigate }) {
   if (isFullySetup) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <div className="max-w-4xl mx-auto px-4 py-16">
+        <div className="max-w-6xl mx-auto px-4 py-16">
           <Dashboard navigate={navigate} />
         </div>
       </div>

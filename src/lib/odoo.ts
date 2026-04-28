@@ -148,6 +148,26 @@ export interface ExpenseReport {
   expenses: ExpenseReportExpense[];
 }
 
+export interface Expense {
+  id: number;
+  title: string;
+  description?: string;
+  date?: string;
+  employee_id: [number, string] | false;
+  employee_name?: string;
+  employee_email?: string;
+  bank_account_number?: string;
+  total_amount: number;
+  currency?: string;
+  state: string;
+  payment_mode?: string;
+  attachment?: Attachment;
+  /** Open Collective legacyId, set when the expense was imported from OC. */
+  ocLegacyId?: number;
+  /** Full Open Collective expense URL, set when imported from OC. */
+  ocUrl?: string;
+}
+
 export type InvoiceDirection = "all" | "incoming" | "outgoing";
 
 export interface JournalEntry {
@@ -590,6 +610,8 @@ export class OdooClient {
     amountTotal: number;
     pdfUrl: string | null;
     attachments: Array<{ id: number; name: string; mimetype: string }>;
+    type: "invoice" | "expense";
+    openModel: string;
   }>> {
     if (!this.uid) {
       throw new Error("Not authenticated. Call authenticate() first.");
@@ -664,54 +686,157 @@ export class OdooClient {
     const candidateMoveIds = [...new Set(counterpartLines.map(cl => cl.move_id[0]))];
     if (candidateMoveIds.length === 0) return new Map();
 
-    // Step 4: Fetch invoice details — filter to actual invoices (in_invoice/out_invoice)
-    const invoices = await this.callRPC("object", "execute_kw", [
+    // Step 4: Fetch all candidate move details (not just invoices). We need
+    // move_type to distinguish invoices from plain journal entries, since
+    // statement lines can be reconciled against hr.expense entries too (those
+    // are `move_type = entry`, not `in_invoice`).
+    const candidateMoves = await this.callRPC("object", "execute_kw", [
       this.config.database,
       this.uid,
       this.config.password,
       "account.move",
       "search_read",
-      [[
-        ["id", "in", candidateMoveIds],
-        ["move_type", "in", ["in_invoice", "out_invoice"]],
-      ]],
-      { fields: ["id", "name", "partner_id", "amount_total"] },
-    ]) as Array<{ id: number; name: string; partner_id: [number, string] | false; amount_total: number }>;
+      [[["id", "in", candidateMoveIds]]],
+      { fields: ["id", "name", "partner_id", "amount_total", "move_type"] },
+    ]) as Array<{
+      id: number;
+      name: string;
+      partner_id: [number, string] | false;
+      amount_total: number;
+      move_type: string;
+    }>;
 
-    const invoiceIdSet = new Set(invoices.map(inv => inv.id));
-
-    // Map reconcileId → invoiceId (only for actual invoices)
-    const reconcileToInvoiceId = new Map<number, number>();
-    for (const cl of counterpartLines) {
-      if (invoiceIdSet.has(cl.move_id[0])) {
-        reconcileToInvoiceId.set(cl.full_reconcile_id[0], cl.move_id[0]);
+    const invoiceIds: number[] = [];
+    const entryMoveIds: number[] = [];
+    for (const m of candidateMoves) {
+      if (m.move_type === "in_invoice" || m.move_type === "out_invoice") {
+        invoiceIds.push(m.id);
+      } else if (m.move_type === "entry") {
+        entryMoveIds.push(m.id);
       }
     }
 
-    const invoiceMap = new Map(invoices.map(inv => [inv.id, inv]));
+    // Step 4b: For entry moves, see if any correspond to an hr.expense(.sheet).
+    // In Odoo ≤18, hr.expense.sheet.account_move_id points to the posted move.
+    // In Odoo 19+, hr.expense itself has account_move_id. Try both.
+    type ExpenseInfo = {
+      id: number;
+      name: string;
+      employeeName: string;
+      totalAmount: number;
+      moveId: number;
+      source: "hr.expense.sheet" | "hr.expense";
+      attachmentResId: number;     // where attachments are stored (the expense/sheet id)
+      attachmentResModel: string;  // "hr.expense.sheet" or "hr.expense"
+    };
+    const expenseByMoveId = new Map<number, ExpenseInfo>();
 
-    // Step 5: Fetch attachments for these invoices
-    const attachments = await this.callRPC("object", "execute_kw", [
-      this.config.database,
-      this.uid,
-      this.config.password,
-      "ir.attachment",
-      "search_read",
-      [[
-        ["res_model", "=", "account.move"],
-        ["res_id", "in", [...invoiceIdSet]],
-      ]],
-      { fields: ["id", "name", "mimetype", "res_id"] },
-    ]) as Array<{ id: number; name: string; mimetype: string; res_id: number }>;
-
-    // Group attachments by invoice
-    const attachmentsByInvoice = new Map<number, Array<{ id: number; name: string; mimetype: string }>>();
-    for (const att of attachments) {
-      if (!attachmentsByInvoice.has(att.res_id)) attachmentsByInvoice.set(att.res_id, []);
-      attachmentsByInvoice.get(att.res_id)!.push({ id: att.id, name: att.name, mimetype: att.mimetype });
+    if (entryMoveIds.length > 0) {
+      const tryLookup = async (
+        model: "hr.expense.sheet" | "hr.expense"
+      ): Promise<void> => {
+        try {
+          const rows = (await this.callRPC("object", "execute_kw", [
+            this.config.database,
+            this.uid,
+            this.config.password,
+            model,
+            "search_read",
+            [[["account_move_id", "in", entryMoveIds]]],
+            {
+              fields: ["id", "name", "employee_id", "total_amount", "account_move_id"],
+            },
+          ])) as Array<{
+            id: number;
+            name: string;
+            employee_id: [number, string] | false;
+            total_amount: number;
+            account_move_id: [number, string] | false;
+          }>;
+          for (const row of rows) {
+            if (!row.account_move_id || !Array.isArray(row.account_move_id)) continue;
+            const moveId = row.account_move_id[0];
+            if (expenseByMoveId.has(moveId)) continue; // sheet wins over expense
+            expenseByMoveId.set(moveId, {
+              id: row.id,
+              name: row.name || "",
+              employeeName: Array.isArray(row.employee_id) ? row.employee_id[1] : "",
+              totalAmount: row.total_amount || 0,
+              moveId,
+              source: model,
+              attachmentResId: row.id,
+              attachmentResModel: model,
+            });
+          }
+        } catch (_err) {
+          // Model may not exist in this Odoo version — ignore.
+        }
+      };
+      // Prefer sheet info if available (older Odoo versions); fall back to expense.
+      await tryLookup("hr.expense.sheet");
+      await tryLookup("hr.expense");
     }
 
-    // Step 6: Build the final txHash → invoice info map
+    const invoiceIdSet = new Set(invoiceIds);
+
+    // Map reconcileId → counterpart move id (either invoice or expense-entry).
+    const reconcileToReconciledMoveId = new Map<number, number>();
+    for (const cl of counterpartLines) {
+      const mvId = cl.move_id[0];
+      if (invoiceIdSet.has(mvId) || expenseByMoveId.has(mvId)) {
+        reconcileToReconciledMoveId.set(cl.full_reconcile_id[0], mvId);
+      }
+    }
+
+    const moveMap = new Map(candidateMoves.map((inv) => [inv.id, inv]));
+
+    // Step 5: Fetch attachments for both invoices (account.move) and expenses
+    // (hr.expense.sheet / hr.expense).
+    const attachmentsByMoveId = new Map<
+      number,
+      Array<{ id: number; name: string; mimetype: string }>
+    >();
+
+    const loadAttachments = async (
+      resModel: string,
+      resIds: number[]
+    ): Promise<Map<number, Array<{ id: number; name: string; mimetype: string }>>> => {
+      const out = new Map<number, Array<{ id: number; name: string; mimetype: string }>>();
+      if (resIds.length === 0) return out;
+      const rows = (await this.callRPC("object", "execute_kw", [
+        this.config.database,
+        this.uid,
+        this.config.password,
+        "ir.attachment",
+        "search_read",
+        [[
+          ["res_model", "=", resModel],
+          ["res_id", "in", resIds],
+        ]],
+        { fields: ["id", "name", "mimetype", "res_id"] },
+      ])) as Array<{ id: number; name: string; mimetype: string; res_id: number }>;
+      for (const att of rows) {
+        if (!out.has(att.res_id)) out.set(att.res_id, []);
+        out.get(att.res_id)!.push({ id: att.id, name: att.name, mimetype: att.mimetype });
+      }
+      return out;
+    };
+
+    if (invoiceIdSet.size > 0) {
+      const invoiceAttachments = await loadAttachments("account.move", [...invoiceIdSet]);
+      for (const [moveId, atts] of invoiceAttachments) {
+        attachmentsByMoveId.set(moveId, atts);
+      }
+    }
+    for (const [, info] of expenseByMoveId) {
+      const atts = await loadAttachments(info.attachmentResModel, [info.attachmentResId]);
+      const flat = atts.get(info.attachmentResId) || [];
+      if (flat.length > 0) attachmentsByMoveId.set(info.moveId, flat);
+    }
+
+    // Step 6: Build the final txHash → reconciliation info map. `invoice` is
+    // kept as the field name for backwards compat with the client; it can now
+    // carry either an invoice or an expense, distinguished by `type`.
     const result = new Map<string, {
       invoiceId: number;
       invoiceName: string;
@@ -719,28 +844,48 @@ export class OdooClient {
       amountTotal: number;
       pdfUrl: string | null;
       attachments: Array<{ id: number; name: string; mimetype: string }>;
+      type: "invoice" | "expense";
+      openModel: string;
     }>();
 
     for (const [txHash, { moveId }] of txHashToLine) {
       const reconcileId = moveToReconcileId.get(moveId);
       if (!reconcileId) continue;
-      const invoiceId = reconcileToInvoiceId.get(reconcileId);
-      if (!invoiceId) continue;
-      const invoice = invoiceMap.get(invoiceId);
+      const counterpartId = reconcileToReconciledMoveId.get(reconcileId);
+      if (!counterpartId) continue;
+
+      const expense = expenseByMoveId.get(counterpartId);
+      const atts = attachmentsByMoveId.get(counterpartId) || [];
+      const pdfAttachment = atts.find((a) => a.mimetype === "application/pdf");
+      const pdfUrl = pdfAttachment
+        ? `${this.config.url}/web/content/${pdfAttachment.id}/${encodeURIComponent(pdfAttachment.name)}`
+        : null;
+
+      if (expense) {
+        result.set(txHash, {
+          invoiceId: expense.id,
+          invoiceName: expense.name,
+          partnerName: expense.employeeName,
+          amountTotal: expense.totalAmount,
+          pdfUrl,
+          attachments: atts,
+          type: "expense",
+          openModel: expense.source,
+        });
+        continue;
+      }
+
+      const invoice = moveMap.get(counterpartId);
       if (!invoice) continue;
-
-      const invAttachments = attachmentsByInvoice.get(invoiceId) || [];
-      const pdfAttachment = invAttachments.find(a => a.mimetype === "application/pdf");
-
       result.set(txHash, {
         invoiceId: invoice.id,
         invoiceName: invoice.name,
         partnerName: invoice.partner_id ? invoice.partner_id[1] : "",
         amountTotal: invoice.amount_total,
-        pdfUrl: pdfAttachment
-          ? `${this.config.url}/web/content/${pdfAttachment.id}/${encodeURIComponent(pdfAttachment.name)}`
-          : null,
-        attachments: invAttachments,
+        pdfUrl,
+        attachments: atts,
+        type: "invoice",
+        openModel: "account.move",
       });
     }
 
@@ -2001,6 +2146,219 @@ export class OdooClient {
     }
   }
 
+  /**
+   * Fetch individual expense records (hr.expense).
+   * Matches the Odoo "Expenses" view at /odoo/expenses-employee.
+   * Works on Odoo versions where hr.expense.sheet is not installed (e.g. Odoo 19).
+   */
+  async getExpenses(limit: number = 100): Promise<Expense[]> {
+    if (!this.uid) {
+      throw new Error("Not authenticated. Call authenticate() first.");
+    }
+
+    try {
+      const expensesResult = (await this.callRPC("object", "execute_kw", [
+        this.config.database,
+        this.uid,
+        this.config.password,
+        "hr.expense",
+        "search_read",
+        [[]],
+        {
+          fields: [
+            "id",
+            "name",
+            "date",
+            "employee_id",
+            "total_amount",
+            "currency_id",
+            "state",
+            "payment_mode",
+            "description",
+          ],
+          order: "date desc, id desc",
+          limit,
+        },
+      ])) as Record<string, unknown>[];
+
+      if (expensesResult.length === 0) return [];
+
+      const expenseIds = expensesResult.map((e) => e.id as number);
+
+      // Fetch attachments (pick the latest per expense)
+      const attachmentByExpenseId: Record<number, Attachment> = {};
+      const attachmentsResult = (await this.callRPC("object", "execute_kw", [
+        this.config.database,
+        this.uid,
+        this.config.password,
+        "ir.attachment",
+        "search_read",
+        [
+          [
+            ["res_model", "=", "hr.expense"],
+            ["res_id", "in", expenseIds],
+          ],
+        ],
+        {
+          fields: ["id", "res_id", "name", "mimetype", "file_size", "create_date"],
+          order: "res_id, id desc",
+        },
+      ])) as Record<string, unknown>[];
+
+      for (const att of attachmentsResult) {
+        const expenseId = att.res_id as number;
+        if (attachmentByExpenseId[expenseId]) continue;
+        const attachmentId = att.id as number;
+        attachmentByExpenseId[expenseId] = {
+          id: attachmentId,
+          name: att.name as string,
+          mimetype: att.mimetype as string,
+          file_size: att.file_size as number | undefined,
+          url: `${this.config.url}/web/content/${attachmentId}`,
+          create_date: att.create_date as string | undefined,
+        };
+      }
+
+      // Enrich with employee bank account (field name varies across Odoo versions)
+      const employeeIds = [
+        ...new Set(
+          expensesResult
+            .map((e) => e.employee_id)
+            .filter((v) => v && Array.isArray(v))
+            .map((v) => (v as [number, string])[0])
+        ),
+      ];
+
+      type EmployeeInfo = { name?: string; email?: string; bankId?: number };
+      const employeeInfoById: Record<number, EmployeeInfo> = {};
+      if (employeeIds.length > 0) {
+        const bankFieldCandidates = [
+          "primary_bank_account_id",
+          "private_bank_account_id",
+          "bank_account_id",
+        ];
+        const readEmployees = async (
+          fields: string[]
+        ): Promise<Record<string, unknown>[]> => {
+          return (await this.callRPC("object", "execute_kw", [
+            this.config.database,
+            this.uid,
+            this.config.password,
+            "hr.employee",
+            "read",
+            [[...employeeIds]],
+            { fields },
+          ])) as Record<string, unknown>[];
+        };
+
+        let employees: Record<string, unknown>[] = [];
+        for (const field of bankFieldCandidates) {
+          try {
+            employees = await readEmployees(["id", "name", "work_email", field]);
+            break;
+          } catch (_error) {
+            continue;
+          }
+        }
+        if (employees.length === 0) {
+          employees = await readEmployees(["id", "name", "work_email"]);
+        }
+
+        for (const emp of employees) {
+          const id = emp.id as number;
+          const bankId = (() => {
+            for (const field of bankFieldCandidates) {
+              const val = emp[field] as [number, string] | false | undefined;
+              if (val && Array.isArray(val)) return val[0];
+            }
+            return undefined;
+          })();
+          employeeInfoById[id] = {
+            name: emp.name as string | undefined,
+            email: (emp.work_email as string) || undefined,
+            bankId,
+          };
+        }
+      }
+
+      const bankIds = [
+        ...new Set(
+          Object.values(employeeInfoById)
+            .map((e) => e.bankId)
+            .filter((v): v is number => typeof v === "number")
+        ),
+      ];
+
+      const bankAccountNumberById: Record<number, string> = {};
+      if (bankIds.length > 0) {
+        const banksResult = await this.callRPC("object", "execute_kw", [
+          this.config.database,
+          this.uid,
+          this.config.password,
+          "res.partner.bank",
+          "read",
+          [[...bankIds]],
+          { fields: ["id", "acc_number"] },
+        ]);
+        for (const bank of banksResult as Record<string, unknown>[]) {
+          bankAccountNumberById[bank.id as number] = bank.acc_number as string;
+        }
+      }
+
+      // Parse "OC-<legacyId> <URL>" (or bare "OC-<legacyId>") out of the
+      // description field so we can link back to Open Collective and call its
+      // mark-paid mutation after Monerium payment.
+      const parseOcRef = (description: string | undefined) => {
+        if (!description) return { ocLegacyId: undefined, ocUrl: undefined };
+        const m = description.match(
+          /^OC-(\d+)(?:\s+(https?:\/\/\S+))?/
+        );
+        if (!m) return { ocLegacyId: undefined, ocUrl: undefined };
+        return {
+          ocLegacyId: parseInt(m[1], 10),
+          ocUrl: m[2] || undefined,
+        };
+      };
+
+      return expensesResult.map((exp) => {
+        const id = exp.id as number;
+        const employee = exp.employee_id as [number, string] | false;
+        const currency = exp.currency_id as [number, string] | false;
+        const attachment = attachmentByExpenseId[id];
+        const employeeId =
+          employee && Array.isArray(employee) ? employee[0] : undefined;
+        const info = employeeId ? employeeInfoById[employeeId] : undefined;
+        const bankAccountNumber =
+          info?.bankId != null ? bankAccountNumberById[info.bankId] : undefined;
+        const description = (exp.description as string) || undefined;
+        const { ocLegacyId, ocUrl } = parseOcRef(description);
+
+        return {
+          id,
+          title: (exp.name as string) || "",
+          description,
+          date: (exp.date as string) || undefined,
+          employee_id: employee,
+          employee_name:
+            employee && Array.isArray(employee) ? employee[1] : undefined,
+          employee_email: info?.email,
+          bank_account_number: bankAccountNumber,
+          total_amount: (exp.total_amount as number) || 0,
+          currency:
+            currency && Array.isArray(currency) ? currency[1] : undefined,
+          state: (exp.state as string) || "unknown",
+          payment_mode: (exp.payment_mode as string) || undefined,
+          attachment,
+          ocLegacyId,
+          ocUrl,
+        };
+      });
+    } catch (error) {
+      console.error("Failed to fetch expenses:", error);
+      throw error;
+    }
+  }
+
   async getEmployees(): Promise<Employee[]> {
     if (!this.uid) {
       throw new Error("Not authenticated. Call authenticate() first.");
@@ -2227,6 +2585,860 @@ export class OdooClient {
       console.error("Failed to fetch contacts:", error);
       throw error;
     }
+  }
+
+  /**
+   * Search for an employee by name (case-insensitive partial match).
+   * Returns the first match with bank account info, or null.
+   */
+  async findEmployeeByName(name: string): Promise<Employee | null> {
+    if (!this.uid) {
+      throw new Error("Not authenticated. Call authenticate() first.");
+    }
+
+    try {
+      const bankFieldCandidates = [
+        "primary_bank_account_id",
+        "private_bank_account_id",
+        "bank_account_id",
+      ];
+
+      let employees: Record<string, unknown>[] = [];
+      for (const field of bankFieldCandidates) {
+        try {
+          employees = (await this.callRPC("object", "execute_kw", [
+            this.config.database,
+            this.uid,
+            this.config.password,
+            "hr.employee",
+            "search_read",
+            [[["name", "ilike", name], ["active", "=", true]]],
+            { fields: ["id", "name", field], limit: 5 },
+          ])) as Record<string, unknown>[];
+          break;
+        } catch {
+          continue;
+        }
+      }
+
+      if (employees.length === 0) return null;
+
+      const emp = employees[0];
+      const bankRef = (() => {
+        for (const field of bankFieldCandidates) {
+          const val = emp[field] as [number, string] | false | undefined;
+          if (val && Array.isArray(val)) return val[0];
+        }
+        return undefined;
+      })();
+
+      let bankAccountNumber: string | undefined;
+      if (bankRef) {
+        const banks = (await this.callRPC("object", "execute_kw", [
+          this.config.database,
+          this.uid,
+          this.config.password,
+          "res.partner.bank",
+          "read",
+          [[bankRef]],
+          { fields: ["id", "acc_number"] },
+        ])) as Record<string, unknown>[];
+        if (banks.length > 0) {
+          bankAccountNumber = banks[0].acc_number as string;
+        }
+      }
+
+      return {
+        id: emp.id as number,
+        name: emp.name as string,
+        bank_account_number: bankAccountNumber,
+      };
+    } catch (error) {
+      console.error(`Failed to find employee by name "${name}":`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Create an employee in Odoo with optional bank account, department, email, and address.
+   */
+  async createEmployee(data: {
+    name: string;
+    iban?: string;
+    accountHolderName?: string;
+    department?: string;
+    email?: string;
+    address?: { street?: string; city?: string; postCode?: string; country?: string };
+  }): Promise<{ id: number; name: string; bank_account_number?: string }> {
+    if (!this.uid) {
+      throw new Error("Not authenticated. Call authenticate() first.");
+    }
+
+    // Find or create department if provided
+    let departmentId: number | undefined;
+    if (data.department) {
+      // Search for existing department
+      const depts = (await this.callRPC("object", "execute_kw", [
+        this.config.database,
+        this.uid,
+        this.config.password,
+        "hr.department",
+        "search_read",
+        [[["name", "=", data.department]]],
+        { fields: ["id"], limit: 1 },
+      ])) as Record<string, unknown>[];
+
+      if (depts.length > 0) {
+        departmentId = depts[0].id as number;
+      } else {
+        departmentId = (await this.callRPC("object", "execute_kw", [
+          this.config.database,
+          this.uid,
+          this.config.password,
+          "hr.department",
+          "create",
+          [{ name: data.department }],
+        ])) as number;
+        console.log(`Created department: ${data.department} (ID: ${departmentId})`);
+      }
+    }
+
+    // Create the employee
+    const employeeData: Record<string, unknown> = { name: data.name };
+    if (departmentId) employeeData.department_id = departmentId;
+    if (data.email) {
+      employeeData.work_email = data.email;
+      employeeData.private_email = data.email;
+    }
+    // Set private address directly on employee (Odoo v19+)
+    if (data.address?.street) employeeData.private_street = data.address.street;
+    if (data.address?.city) employeeData.private_city = data.address.city;
+    if (data.address?.postCode) employeeData.private_zip = data.address.postCode;
+    if (data.address?.country) {
+      try {
+        const countries = (await this.callRPC("object", "execute_kw", [
+          this.config.database, this.uid, this.config.password,
+          "res.country", "search_read",
+          [[["code", "=", data.address.country.toUpperCase()]]],
+          { fields: ["id"], limit: 1 },
+        ])) as Record<string, unknown>[];
+        if (countries.length > 0) employeeData.private_country_id = countries[0].id;
+      } catch { /* ignore */ }
+    }
+
+    const employeeId = (await this.callRPC("object", "execute_kw", [
+      this.config.database,
+      this.uid,
+      this.config.password,
+      "hr.employee",
+      "create",
+      [employeeData],
+    ])) as number;
+
+    console.log(`Created employee: ${data.name} (ID: ${employeeId})`);
+
+    // Attach bank account if IBAN provided
+    let bankAccountNumber: string | undefined;
+    if (data.iban) {
+      // Find the employee's work_contact_id partner (auto-created by Odoo)
+      const partnerFieldCandidates = ["work_contact_id", "user_partner_id", "address_home_id"];
+      let partnerId: number | undefined;
+
+      for (const pField of partnerFieldCandidates) {
+        try {
+          const empRecords = (await this.callRPC("object", "execute_kw", [
+            this.config.database, this.uid, this.config.password,
+            "hr.employee", "read", [[employeeId]],
+            { fields: ["id", pField] },
+          ])) as Record<string, unknown>[];
+          const ref = empRecords[0]?.[pField] as [number, string] | false;
+          if (ref && Array.isArray(ref)) {
+            partnerId = ref[0];
+            break;
+          }
+        } catch {
+          continue;
+        }
+      }
+
+      // Create a partner if none found
+      if (!partnerId) {
+        partnerId = (await this.callRPC("object", "execute_kw", [
+          this.config.database, this.uid, this.config.password,
+          "res.partner", "create",
+          [{ name: data.name, is_company: false }],
+        ])) as number;
+      }
+
+      // Create bank account linked to the partner
+      const bankId = await this.createBankAccount(
+        data.iban,
+        partnerId,
+        data.accountHolderName || data.name
+      );
+
+      // Link bank account to employee via bank_account_ids (many2many) or direct fields
+      const linkStrategies: Array<{ field: string; value: unknown }> = [
+        { field: "bank_account_ids", value: [[4, bankId, 0]] },
+        { field: "primary_bank_account_id", value: bankId },
+        { field: "private_bank_account_id", value: bankId },
+        { field: "bank_account_id", value: bankId },
+      ];
+      for (const { field, value } of linkStrategies) {
+        try {
+          await this.callRPC("object", "execute_kw", [
+            this.config.database, this.uid, this.config.password,
+            "hr.employee", "write",
+            [[employeeId], { [field]: value }],
+          ]);
+          break;
+        } catch {
+          continue;
+        }
+      }
+
+      bankAccountNumber = data.iban;
+    }
+
+    return { id: employeeId, name: data.name, bank_account_number: bankAccountNumber };
+  }
+
+  /**
+   * Sync an existing employee's details in Odoo (email, address, bank account, department, manager).
+   */
+  async syncEmployee(employeeId: number, data: {
+    email?: string;
+    iban?: string;
+    bic?: string;
+    accountHolderName?: string;
+    address?: { street?: string; city?: string; postCode?: string; country?: string };
+    department?: string;
+    managerName?: string;
+  }): Promise<{ id: number; name: string; bank_account_number?: string }> {
+    if (!this.uid) {
+      throw new Error("Not authenticated. Call authenticate() first.");
+    }
+
+    const employeeUpdate: Record<string, unknown> = {};
+
+    // Set email
+    if (data.email) {
+      employeeUpdate.work_email = data.email;
+    }
+
+    // Find or create department
+    if (data.department) {
+      const depts = (await this.callRPC("object", "execute_kw", [
+        this.config.database, this.uid, this.config.password,
+        "hr.department", "search_read",
+        [[["name", "=", data.department]]],
+        { fields: ["id"], limit: 1 },
+      ])) as Record<string, unknown>[];
+
+      if (depts.length > 0) {
+        employeeUpdate.department_id = depts[0].id;
+      } else {
+        const deptId = (await this.callRPC("object", "execute_kw", [
+          this.config.database, this.uid, this.config.password,
+          "hr.department", "create",
+          [{ name: data.department }],
+        ])) as number;
+        employeeUpdate.department_id = deptId;
+        console.log(`Created department: ${data.department} (ID: ${deptId})`);
+      }
+    }
+
+    // Find manager by name and set as parent_id
+    if (data.managerName) {
+      const managers = (await this.callRPC("object", "execute_kw", [
+        this.config.database, this.uid, this.config.password,
+        "hr.employee", "search_read",
+        [[["name", "ilike", data.managerName], ["active", "=", true]]],
+        { fields: ["id", "name"], limit: 1 },
+      ])) as Record<string, unknown>[];
+
+      if (managers.length > 0) {
+        employeeUpdate.parent_id = managers[0].id;
+        console.log(`Found manager: ${managers[0].name} (ID: ${managers[0].id})`);
+      } else {
+        // Create manager as a minimal employee
+        const managerId = (await this.callRPC("object", "execute_kw", [
+          this.config.database, this.uid, this.config.password,
+          "hr.employee", "create",
+          [{ name: data.managerName, ...(employeeUpdate.department_id ? { department_id: employeeUpdate.department_id } : {}) }],
+        ])) as number;
+        employeeUpdate.parent_id = managerId;
+        console.log(`Created manager: ${data.managerName} (ID: ${managerId})`);
+      }
+    }
+
+    // Apply employee fields
+    if (Object.keys(employeeUpdate).length > 0) {
+      await this.callRPC("object", "execute_kw", [
+        this.config.database, this.uid, this.config.password,
+        "hr.employee", "write",
+        [[employeeId], employeeUpdate],
+      ]);
+      console.log(`Updated employee ${employeeId}:`, Object.keys(employeeUpdate));
+    }
+
+    // Set private address on the employee
+    // Odoo v19+ uses direct fields on hr.employee (private_street, private_city, etc.)
+    // Older versions use address_home_id (many2one to res.partner)
+    if (data.address && (data.address.street || data.address.city)) {
+      const privateAddressFields: Record<string, unknown> = {};
+      if (data.address.street) privateAddressFields.private_street = data.address.street;
+      if (data.address.city) privateAddressFields.private_city = data.address.city;
+      if (data.address.postCode) privateAddressFields.private_zip = data.address.postCode;
+      if (data.email) privateAddressFields.private_email = data.email;
+      if (data.address.country) {
+        try {
+          const countries = (await this.callRPC("object", "execute_kw", [
+            this.config.database, this.uid, this.config.password,
+            "res.country", "search_read",
+            [[["code", "=", data.address.country.toUpperCase()]]],
+            { fields: ["id"], limit: 1 },
+          ])) as Record<string, unknown>[];
+          if (countries.length > 0) privateAddressFields.private_country_id = countries[0].id;
+        } catch { /* ignore */ }
+      }
+
+      try {
+        await this.callRPC("object", "execute_kw", [
+          this.config.database, this.uid, this.config.password,
+          "hr.employee", "write",
+          [[employeeId], privateAddressFields],
+        ]);
+        console.log(`Set private address on employee ${employeeId}:`, Object.keys(privateAddressFields));
+      } catch (err) {
+        // Fallback: try address_home_id approach for older Odoo versions
+        console.log("Direct private address fields failed, trying address_home_id fallback...");
+        const partnerData: Record<string, unknown> = {};
+        if (data.address.street) partnerData.street = data.address.street;
+        if (data.address.city) partnerData.city = data.address.city;
+        if (data.address.postCode) partnerData.zip = data.address.postCode;
+        if (data.email) partnerData.email = data.email;
+        if (data.address.country) {
+          try {
+            const countries = (await this.callRPC("object", "execute_kw", [
+              this.config.database, this.uid, this.config.password,
+              "res.country", "search_read",
+              [[["code", "=", data.address.country.toUpperCase()]]],
+              { fields: ["id"], limit: 1 },
+            ])) as Record<string, unknown>[];
+            if (countries.length > 0) partnerData.country_id = countries[0].id;
+          } catch { /* ignore */ }
+        }
+
+        // Read employee name
+        const empRecords = (await this.callRPC("object", "execute_kw", [
+          this.config.database, this.uid, this.config.password,
+          "hr.employee", "read", [[employeeId]],
+          { fields: ["id", "name"] },
+        ])) as Record<string, unknown>[];
+        const empName = (empRecords[0]?.name as string) || "Employee";
+
+        const partnerId = (await this.callRPC("object", "execute_kw", [
+          this.config.database, this.uid, this.config.password,
+          "res.partner", "create",
+          [{ name: empName, is_company: false, ...partnerData }],
+        ])) as number;
+
+        try {
+          await this.callRPC("object", "execute_kw", [
+            this.config.database, this.uid, this.config.password,
+            "hr.employee", "write",
+            [[employeeId], { address_home_id: partnerId }],
+          ]);
+          console.log(`Linked partner ${partnerId} as address_home_id`);
+        } catch {
+          console.log(`Created partner ${partnerId} with address but could not link to employee`);
+        }
+      }
+    }
+
+    // Set bank account (IBAN + BIC)
+    let bankAccountNumber: string | undefined;
+    if (data.iban) {
+      // 1. Find the employee's work_contact_id partner
+      const partnerFieldCandidates = ["work_contact_id", "user_partner_id", "address_home_id"];
+      let partnerId: number | undefined;
+      for (const pField of partnerFieldCandidates) {
+        try {
+          const empRecords = (await this.callRPC("object", "execute_kw", [
+            this.config.database, this.uid, this.config.password,
+            "hr.employee", "read", [[employeeId]],
+            { fields: ["id", pField] },
+          ])) as Record<string, unknown>[];
+          const ref = empRecords[0]?.[pField] as [number, string] | false;
+          if (ref && Array.isArray(ref)) {
+            partnerId = ref[0];
+            break;
+          }
+        } catch {
+          continue;
+        }
+      }
+
+      if (!partnerId) {
+        // Create a partner as last resort
+        const empRecords = (await this.callRPC("object", "execute_kw", [
+          this.config.database, this.uid, this.config.password,
+          "hr.employee", "read", [[employeeId]],
+          { fields: ["id", "name"] },
+        ])) as Record<string, unknown>[];
+        partnerId = (await this.callRPC("object", "execute_kw", [
+          this.config.database, this.uid, this.config.password,
+          "res.partner", "create",
+          [{ name: (empRecords[0]?.name as string) || "Employee", is_company: false }],
+        ])) as number;
+      }
+
+      // 2. Check if this partner already has a bank account
+      const existingBanks = (await this.callRPC("object", "execute_kw", [
+        this.config.database, this.uid, this.config.password,
+        "res.partner.bank", "search_read",
+        [[["partner_id", "=", partnerId]]],
+        { fields: ["id", "acc_number"], limit: 1 },
+      ])) as Record<string, unknown>[];
+
+      let bankId: number;
+      if (existingBanks.length > 0) {
+        // Update existing bank account
+        bankId = existingBanks[0].id as number;
+        const updateData: Record<string, unknown> = { acc_number: data.iban };
+        if (data.bic) updateData.bank_bic = data.bic;
+        if (data.accountHolderName) updateData.acc_holder_name = data.accountHolderName;
+        await this.callRPC("object", "execute_kw", [
+          this.config.database, this.uid, this.config.password,
+          "res.partner.bank", "write", [[bankId], updateData],
+        ]);
+        console.log(`Updated bank account ${bankId} on partner ${partnerId}: IBAN=${data.iban}`);
+      } else {
+        // Create new bank account on the partner
+        const bankData: Record<string, unknown> = {
+          acc_number: data.iban,
+          partner_id: partnerId,
+          acc_type: "iban",
+        };
+        if (data.bic) bankData.bank_bic = data.bic;
+        if (data.accountHolderName) bankData.acc_holder_name = data.accountHolderName;
+
+        bankId = (await this.callRPC("object", "execute_kw", [
+          this.config.database, this.uid, this.config.password,
+          "res.partner.bank", "create", [bankData],
+        ])) as number;
+        console.log(`Created bank account ${bankId} on partner ${partnerId}: IBAN=${data.iban}`);
+      }
+
+      // 3. Link bank account to employee
+      // In Odoo v19, primary_bank_account_id is computed from bank_account_ids (many2many)
+      // Try bank_account_ids first, then fall back to direct field writes
+      const linkStrategies: Array<{ field: string; value: unknown }> = [
+        { field: "bank_account_ids", value: [[4, bankId, 0]] }, // many2many link
+        { field: "primary_bank_account_id", value: bankId },
+        { field: "private_bank_account_id", value: bankId },
+        { field: "bank_account_id", value: bankId },
+      ];
+      for (const { field, value } of linkStrategies) {
+        try {
+          await this.callRPC("object", "execute_kw", [
+            this.config.database, this.uid, this.config.password,
+            "hr.employee", "write",
+            [[employeeId], { [field]: value }],
+          ]);
+          console.log(`Set ${field} on employee ${employeeId} (bank ${bankId})`);
+          break;
+        } catch {
+          continue;
+        }
+      }
+
+      // 4. Set BIC by finding/creating a res.bank record and linking it
+      if (data.bic) {
+        try {
+          // Search for existing bank with this BIC
+          let resBankId: number | undefined;
+          const existingResBanks = (await this.callRPC("object", "execute_kw", [
+            this.config.database, this.uid, this.config.password,
+            "res.bank", "search_read",
+            [[["bic", "=", data.bic]]],
+            { fields: ["id"], limit: 1 },
+          ])) as Record<string, unknown>[];
+
+          if (existingResBanks.length > 0) {
+            resBankId = existingResBanks[0].id as number;
+          } else {
+            resBankId = (await this.callRPC("object", "execute_kw", [
+              this.config.database, this.uid, this.config.password,
+              "res.bank", "create",
+              [{ name: data.bic, bic: data.bic }],
+            ])) as number;
+            console.log(`Created res.bank for BIC ${data.bic} (ID: ${resBankId})`);
+          }
+
+          await this.callRPC("object", "execute_kw", [
+            this.config.database, this.uid, this.config.password,
+            "res.partner.bank", "write",
+            [[bankId], { bank_id: resBankId }],
+          ]);
+          console.log(`Linked bank_id=${resBankId} (BIC: ${data.bic}) to bank account ${bankId}`);
+        } catch (err) {
+          console.error(`Failed to set BIC: ${err}`);
+        }
+      }
+      bankAccountNumber = data.iban;
+    }
+
+    // Read back employee name
+    const empRecords2 = (await this.callRPC("object", "execute_kw", [
+      this.config.database, this.uid, this.config.password,
+      "hr.employee", "read", [[employeeId]],
+      { fields: ["id", "name"] },
+    ])) as Record<string, unknown>[];
+
+    return {
+      id: employeeId,
+      name: (empRecords2[0]?.name as string) || "",
+      bank_account_number: bankAccountNumber,
+    };
+  }
+
+  /**
+   * Search for an existing expense in Odoo by OC reference.
+   */
+  async findExpenseByRef(ref: string): Promise<{ id: number } | null> {
+    if (!this.uid) {
+      throw new Error("Not authenticated. Call authenticate() first.");
+    }
+
+    try {
+      // New format is "OC-<legacyId> <URL>"; legacy format is bare "OC-<legacyId>".
+      // Match either: exact equality OR prefix "OC-<id> " (space-delimited).
+      const result = (await this.callRPC("object", "execute_kw", [
+        this.config.database,
+        this.uid,
+        this.config.password,
+        "hr.expense",
+        "search_read",
+        [[
+          "|",
+          ["description", "=", ref],
+          ["description", "=like", `${ref} %`],
+        ]],
+        { fields: ["id"], limit: 1 },
+      ])) as Record<string, unknown>[];
+
+      if (result.length === 0) return null;
+      return {
+        id: result[0].id as number,
+      };
+    } catch (error) {
+      console.error(`Failed to find expense by ref "${ref}":`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Attach a file to an Odoo record via ir.attachment.
+   */
+  async createAttachment(data: {
+    name: string;
+    resModel: string;
+    resId: number;
+    base64Data: string;
+    mimetype?: string;
+  }): Promise<number> {
+    if (!this.uid) {
+      throw new Error("Not authenticated. Call authenticate() first.");
+    }
+
+    const attachmentData: Record<string, unknown> = {
+      name: data.name,
+      res_model: data.resModel,
+      res_id: data.resId,
+      datas: data.base64Data,
+      type: "binary",
+    };
+    if (data.mimetype) {
+      attachmentData.mimetype = data.mimetype;
+    }
+
+    const id = (await this.callRPC("object", "execute_kw", [
+      this.config.database,
+      this.uid,
+      this.config.password,
+      "ir.attachment",
+      "create",
+      [attachmentData],
+    ])) as number;
+
+    console.log(`Created attachment "${data.name}" (ID: ${id}) on ${data.resModel}/${data.resId}`);
+    return id;
+  }
+
+  /**
+   * Create expense lines and an expense report in Odoo from an OC expense.
+   * Optionally downloads and attaches files from OC.
+   */
+  async createExpenseReport(data: {
+    employeeId: number;
+    description: string;
+    reference: string;
+    /** Full Open Collective expense URL — stored alongside reference so we can
+     * link back and call markExpenseAsPaid on OC after payment. */
+    ocExpenseUrl?: string;
+    items: Array<{
+      description: string;
+      amount: number;
+      date?: string;
+      attachments?: Array<{ url: string; name: string }>;
+    }>;
+    attachments?: Array<{ url: string; name: string }>;
+    currency?: string;
+    ocApiKey?: string;
+  }): Promise<{ expenseIds: number[]; sheetId?: number }> {
+    if (!this.uid) {
+      throw new Error("Not authenticated. Call authenticate() first.");
+    }
+
+    // Helper: download a file from OC and return base64 + mimetype
+    const downloadFile = async (
+      url: string
+    ): Promise<{ base64: string; mimetype: string } | null> => {
+      try {
+        const headers: Record<string, string> = {};
+        if (data.ocApiKey) headers["Api-Key"] = data.ocApiKey;
+        const res = await fetch(url, { headers });
+        if (!res.ok) {
+          console.error(`Failed to download ${url}: ${res.status}`);
+          return null;
+        }
+        const mimetype =
+          res.headers.get("Content-Type") || "application/octet-stream";
+        const buf = await res.arrayBuffer();
+        const base64 = Buffer.from(buf).toString("base64");
+        return { base64, mimetype };
+      } catch (err) {
+        console.error(`Error downloading ${url}:`, err);
+        return null;
+      }
+    };
+
+    // Find currency ID
+    let currencyId: number | undefined;
+    if (data.currency) {
+      const currencies = (await this.callRPC("object", "execute_kw", [
+        this.config.database,
+        this.uid,
+        this.config.password,
+        "res.currency",
+        "search_read",
+        [[["name", "=", data.currency]]],
+        { fields: ["id"], limit: 1 },
+      ])) as Record<string, unknown>[];
+      if (currencies.length > 0) {
+        currencyId = currencies[0].id as number;
+      }
+    }
+
+    // Find a default expense category (product_id)
+    // Prefer "Others" (EXP_GEN), fall back to any expensable product
+    let defaultProductId: number | undefined;
+    try {
+      const products = (await this.callRPC("object", "execute_kw", [
+        this.config.database, this.uid, this.config.password,
+        "product.product", "search_read",
+        [[["can_be_expensed", "=", true]]],
+        { fields: ["id", "name", "default_code"], order: "default_code" },
+      ])) as Record<string, unknown>[];
+
+      const others = products.find((p) => p.default_code === "EXP_GEN");
+      defaultProductId = (others?.id || products[0]?.id) as number | undefined;
+      if (defaultProductId) {
+        console.log(`Using expense category: ${others?.name || products[0]?.name} (ID: ${defaultProductId})`);
+      }
+    } catch {
+      // product.product may not support can_be_expensed filter
+    }
+
+    // Create individual hr.expense lines
+    const storedRef = data.ocExpenseUrl
+      ? `${data.reference} ${data.ocExpenseUrl}`
+      : data.reference;
+    const expenseIds: number[] = [];
+    for (let i = 0; i < data.items.length; i++) {
+      const item = data.items[i];
+      const expenseData: Record<string, unknown> = {
+        name: item.description || data.description,
+        employee_id: data.employeeId,
+        total_amount: item.amount / 100, // cents to main unit
+        date: item.date || new Date().toISOString().split("T")[0],
+        description: storedRef,
+      };
+      if (defaultProductId) {
+        expenseData.product_id = defaultProductId;
+      }
+      if (currencyId) {
+        expenseData.currency_id = currencyId;
+      }
+
+      const expenseId = (await this.callRPC("object", "execute_kw", [
+        this.config.database,
+        this.uid,
+        this.config.password,
+        "hr.expense",
+        "create",
+        [expenseData],
+      ])) as number;
+      expenseIds.push(expenseId);
+
+      // Collect all attachments for this expense line
+      const allAttachmentIds: number[] = [];
+
+      // Item-level attachments (receipts linked to this specific item)
+      const itemAttachments = item.attachments || [];
+      for (const att of itemAttachments) {
+        const file = await downloadFile(att.url);
+        if (file) {
+          const attId = await this.createAttachment({
+            name: att.name || `receipt-${i + 1}`,
+            resModel: "hr.expense",
+            resId: expenseId,
+            base64Data: file.base64,
+            mimetype: file.mimetype,
+          });
+          allAttachmentIds.push(attId);
+        }
+      }
+
+      // Expense-level attached files go to the first expense line
+      if (i === 0 && data.attachments && data.attachments.length > 0) {
+        for (const att of data.attachments) {
+          const file = await downloadFile(att.url);
+          if (file) {
+            const attId = await this.createAttachment({
+              name: att.name || "attachment",
+              resModel: "hr.expense",
+              resId: expenseId,
+              base64Data: file.base64,
+              mimetype: file.mimetype,
+            });
+            allAttachmentIds.push(attId);
+          }
+        }
+      }
+
+      // Register attachments via message_post so they appear in Odoo UI
+      if (allAttachmentIds.length > 0) {
+        try {
+          await this.callRPC("object", "execute_kw", [
+            this.config.database, this.uid, this.config.password,
+            "hr.expense", "message_post", [[expenseId]],
+            {
+              body: "",
+              attachment_ids: allAttachmentIds,
+            },
+          ]);
+          console.log(`Attached ${allAttachmentIds.length} file(s) to expense ${expenseId} via message_post`);
+        } catch (err) {
+          console.error(`message_post failed for expense ${expenseId}:`, err);
+        }
+      }
+    }
+
+    console.log(`Created ${expenseIds.length} expense line(s): ${expenseIds}`);
+
+    // Try to create expense report (hr.expense.sheet) — removed in Odoo v19
+    let sheetId: number | undefined;
+    try {
+      const sheetData: Record<string, unknown> = {
+        name: data.description,
+        employee_id: data.employeeId,
+        expense_line_ids: expenseIds.map((id) => [4, id, 0]),
+      };
+
+      sheetId = (await this.callRPC("object", "execute_kw", [
+        this.config.database,
+        this.uid,
+        this.config.password,
+        "hr.expense.sheet",
+        "create",
+        [sheetData],
+      ])) as number;
+
+      console.log(`Created expense report (ID: ${sheetId}) with expenses: ${expenseIds}`);
+    } catch (err) {
+      // hr.expense.sheet doesn't exist in Odoo v19+ — expenses are standalone
+      console.log(`Skipping expense report (hr.expense.sheet not available): ${err}`);
+    }
+
+    // Submit + approve so the expense reaches a "payable" state (the /expenses
+    // filter looks for approve/post). Each step is best-effort — if the Odoo
+    // user lacks manager rights or the method doesn't exist on this Odoo
+    // version, we log and move on rather than fail the whole import.
+    const callBestEffort = async (
+      model: string,
+      method: string,
+      args: unknown[],
+      label: string
+    ): Promise<boolean> => {
+      try {
+        await this.callRPC("object", "execute_kw", [
+          this.config.database,
+          this.uid,
+          this.config.password,
+          model,
+          method,
+          args,
+        ]);
+        console.log(`${label}: ok`);
+        return true;
+      } catch (err) {
+        console.log(`${label}: skipped — ${err}`);
+        return false;
+      }
+    };
+
+    if (sheetId != null) {
+      // Older Odoo with hr.expense.sheet: submit → approve
+      await callBestEffort(
+        "hr.expense.sheet",
+        "action_submit_sheet",
+        [[sheetId]],
+        `Submit sheet ${sheetId}`
+      );
+      await callBestEffort(
+        "hr.expense.sheet",
+        "approve_expense_sheets",
+        [[sheetId]],
+        `Approve sheet ${sheetId}`
+      );
+    } else {
+      // Odoo v19+ standalone: try common action names in order.
+      const submitted = await callBestEffort(
+        "hr.expense",
+        "action_submit_expenses",
+        [expenseIds],
+        `Submit expenses ${expenseIds}`
+      );
+      if (!submitted) {
+        await callBestEffort(
+          "hr.expense",
+          "action_submit",
+          [expenseIds],
+          `Submit expenses (fallback) ${expenseIds}`
+        );
+      }
+      await callBestEffort(
+        "hr.expense",
+        "action_approve",
+        [expenseIds],
+        `Approve expenses ${expenseIds}`
+      );
+    }
+
+    return { expenseIds, sheetId };
   }
 
   async checkJournalEntryExists(ref: string): Promise<boolean> {

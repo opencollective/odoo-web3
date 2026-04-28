@@ -6,10 +6,10 @@ import { handleTransactionsRequest } from "./api/odoo/transactions.ts";
 import { handleEmployeesRequest } from "./api/odoo/employees.ts";
 import { handleContactsRequest } from "./api/odoo/contacts.ts";
 import { handleJournalsRequest } from "./api/odoo/journals.ts";
-import { handleSyncRequest } from "./api/odoo/sync.ts";
-import { handleDoctorRequest } from "./api/odoo/doctor.ts";
 import { handleMatchingInvoicesRequest, handleReconcileRequest } from "./api/odoo/reconcile.ts";
-import { handleSyncStatusRequest } from "./api/odoo/sync-status.ts";
+import { handleExpenseSyncRequest } from "./api/odoo/expense-sync.ts";
+import { handleExpensesRequest as handleOdooExpensesRequest } from "./api/odoo/expenses.ts";
+import { handleOdooAttachmentRequest } from "./api/odoo/attachment.ts";
 import { handleMoneriumTokenExchange } from "./api/monerium/token.ts";
 import { handleMoneriumConfigRequest } from "./api/monerium/config.ts";
 import { handleMoneriumClientCredentialsAuth } from "./api/monerium/authenticate.ts";
@@ -26,8 +26,8 @@ import { handleMarkPaidRequest } from "./api/opencollective/markPaid.ts";
 import { handleTestConnectionRequest } from "./api/opencollective/test.ts";
 import { handleFileProxyRequest } from "./api/opencollective/file.ts";
 import { handleCollectivesRequest } from "./api/opencollective/collectives.ts";
+import { handleHostExpensesRequest } from "./api/opencollective/host-expenses.ts";
 import { handleUnlockRequest, handleUnlockStatusRequest, handleLockRequest, handleVerifyPassphraseRequest } from "./api/unlock.ts";
-import { handleSyncSettingsRequest } from "./api/sync-settings.ts";
 import { needsUnlock } from "../lib/keystore.ts";
 import { transform } from "@swc/core";
 
@@ -101,16 +101,16 @@ async function handleRequest(req: Request): Promise<Response> {
     return handleJournalsRequest(req);
   }
 
-  if (url.pathname === "/api/odoo/sync") {
-    return handleSyncRequest(req);
+  if (url.pathname === "/api/odoo/expense-sync") {
+    return handleExpenseSyncRequest(req);
   }
 
-  if (url.pathname === "/api/odoo/sync-status") {
-    return handleSyncStatusRequest(req);
+  if (url.pathname === "/api/odoo/expenses") {
+    return handleOdooExpensesRequest(req);
   }
 
-  if (url.pathname === "/api/odoo/doctor") {
-    return handleDoctorRequest(req);
+  if (url.pathname === "/api/odoo/attachment") {
+    return handleOdooAttachmentRequest(req);
   }
 
   if (url.pathname === "/api/odoo/matching-invoices") {
@@ -169,11 +169,6 @@ async function handleRequest(req: Request): Promise<Response> {
     return handleMoneriumTransactionsRequest(req);
   }
 
-  // Sync settings
-  if (url.pathname === "/api/sync/settings") {
-    return handleSyncSettingsRequest(req);
-  }
-
   // Open Collective API endpoints
   if (url.pathname === "/api/opencollective/expenses") {
     return handleExpensesRequest(req);
@@ -195,6 +190,10 @@ async function handleRequest(req: Request): Promise<Response> {
     return handleCollectivesRequest(req);
   }
 
+  if (url.pathname === "/api/opencollective/host-expenses") {
+    return handleHostExpensesRequest(req);
+  }
+
   // Serve monerium.html for /monerium route
   if (url.pathname === "/monerium") {
     try {
@@ -214,9 +213,9 @@ async function handleRequest(req: Request): Promise<Response> {
     url.pathname === "/bills" ||
     url.pathname === "/collectives" ||
     url.pathname === "/contacts" ||
+    url.pathname === "/expenses" ||
+    url.pathname === "/expenses/import/opencollective" ||
     url.pathname === "/settings" ||
-    url.pathname === "/odoo/sync" ||
-    url.pathname === "/odoo/doctor" ||
     url.pathname === "/monerium/pay" ||
     url.pathname === "/transactions" ||
     url.pathname.match(/^\/transactions\/0x[a-fA-F0-9]+$/) ||
@@ -247,6 +246,10 @@ async function handleRequest(req: Request): Promise<Response> {
           .replace(
             '"{{ENV}}" || "sandbox"',
             `"${process.env.ENV || "sandbox"}"`
+          )
+          .replace(
+            '"{{ODOO_DATABASE}}" || ""',
+            `"${process.env.ODOO_DATABASE || ""}"`
           );
         return new Response(configWithEnv, {
           headers: { "Content-Type": "application/javascript" },
@@ -318,7 +321,7 @@ async function handleRequest(req: Request): Promise<Response> {
 // --- Startup checks ---
 const warnings: string[] = [];
 if (!process.env.MONERIUM_CLIENT_ID || !process.env.MONERIUM_CLIENT_SECRET) {
-  warnings.push("MONERIUM_CLIENT_ID / MONERIUM_CLIENT_SECRET not set — Monerium enrichment during sync will be unavailable");
+  warnings.push("MONERIUM_CLIENT_ID / MONERIUM_CLIENT_SECRET not set — Monerium features will be unavailable");
 }
 if (!process.env.PRIVATE_KEY_ENCRYPTED) {
   warnings.push("PRIVATE_KEY_ENCRYPTED not set — server-side signing unavailable, use WalletConnect instead");
@@ -340,6 +343,7 @@ for (const w of warnings) {
 }
 console.log(`📋 API endpoints:`);
 console.log(`   - /api/odoo/invoices - Fetch invoices from Odoo`);
+console.log(`   - /api/odoo/expenses - Fetch expense reports from Odoo`);
 console.log(`   - /api/odoo/invoices/:id - Fetch invoice details by ID`);
 console.log(
   `   - /api/odoo/transactions - Fetch transactions from Odoo journal`
@@ -347,7 +351,8 @@ console.log(
 console.log(`   - /api/odoo/employees - Fetch employees with bank accounts`);
 console.log(`   - /api/odoo/contacts - Fetch contacts with bank accounts`);
 console.log(`   - /api/odoo/journals - List/create bank journals`);
-console.log(`   - /api/odoo/sync - Sync blockchain transactions to Odoo`);
+console.log(`   - /api/odoo/reconcile - Reconcile a statement line with an invoice`);
+console.log(`   - /api/odoo/matching-invoices - Find invoices matching an amount`);
 console.log(`   - /api/odoo/authenticate - Get Odoo session_id`);
 console.log(
   `   - /api/pdf/view - PDF proxy (CORS workaround, requires session_id)`
@@ -368,6 +373,7 @@ console.log(`   - / - Homepage`);
 console.log(`   - /bills - Odoo invoices list`);
 console.log(`   - /collectives - Hosted collectives list`);
 console.log(`   - /contacts - Odoo contacts list`);
+console.log(`   - /expenses - All expenses across hosted collectives`);
 console.log(`   - /settings - Settings page`);
 console.log(`   - /invoices/:id - Invoice details view`);
 console.log(`   - /:year/:month - Monthly invoices view`);
@@ -378,5 +384,6 @@ console.log(`   - /api/opencollective/collectives - Fetch hosted collectives`);
 console.log(`   - /api/opencollective/expenses - Fetch expenses for a collective`);
 console.log(`   - /api/opencollective/mark-paid - Mark an expense as paid`);
 console.log(`   - /api/opencollective/test - Test API key connection`);
+console.log(`   - /api/opencollective/host-expenses - Fetch expenses across all hosted collectives`);
 
 Bun.serve({ port: PORT, fetch: handleRequest });

@@ -5,8 +5,7 @@
     "dev": "bun --env-file=.env.test --watch src/server/index.ts",
     "server": "bun --env-file=.env src/server/index.ts",
     "test": "bun test --env-file=.env.test",
-    "test:employees": "bun test --env-file=.env.test tests/get-employees.test.ts",
-    "cron": "bun --env-file=.env src/cron.ts"
+    "test:employees": "bun test --env-file=.env.test tests/get-employees.test.ts"
   },
   "dependencies": {
     "@safe-global/protocol-kit": "6.1.1",

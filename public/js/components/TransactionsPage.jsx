@@ -421,7 +421,7 @@ function TransactionRow({ tx, onReconciled, accountSettings, onPreviewInvoice })
                   )}
                   {tx.odooUrl && (
                     <a
-                      href={`${tx.odooUrl}/web#id=${tx.invoice.id}&model=account.move&view_type=form`}
+                      href={`${tx.odooUrl}/web#id=${tx.invoice.id}&model=${tx.invoice.openModel || "account.move"}&view_type=form`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
