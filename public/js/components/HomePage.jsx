@@ -367,7 +367,7 @@ function Dashboard({ navigate }) {
         </p>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,280px),1fr))] gap-6">
         <button
           onClick={() => navigate("/bills")}
           className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 hover:shadow-md transition-shadow text-left group"
@@ -481,6 +481,49 @@ function Dashboard({ navigate }) {
           </p>
           <div className="flex items-center text-purple-600 font-medium">
             View Collectives
+            <svg
+              className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+          </div>
+        </button>
+
+        <button
+          onClick={() => navigate("/contacts")}
+          className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 hover:shadow-md transition-shadow text-left group"
+        >
+          <div className="flex items-center gap-4 mb-4">
+            <div className="p-3 rounded-lg bg-cyan-100 text-cyan-700 group-hover:bg-cyan-200 transition-colors">
+              <svg
+                className="w-8 h-8"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M17 20h5v-2a4 4 0 00-4-4h-1M9 20H2v-2a4 4 0 014-4h3m4-6a4 4 0 11-8 0 4 4 0 018 0zm7 2a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900">Contacts</h2>
+          </div>
+          <p className="text-gray-600 mb-4">
+            Search Odoo contacts and pay saved bank accounts
+          </p>
+          <div className="flex items-center text-cyan-700 font-medium">
+            View Contacts
             <svg
               className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform"
               fill="none"

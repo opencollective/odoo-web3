@@ -176,6 +176,26 @@ export interface Employee {
   bank_account_number?: string;
 }
 
+export interface ContactBankAccount {
+  id: number;
+  acc_number: string;
+  acc_holder_name?: string;
+  bank_bic?: string;
+}
+
+export interface Contact {
+  id: number;
+  name: string;
+  display_name?: string;
+  email?: string;
+  phone?: string;
+  is_company?: boolean;
+  customer_rank?: number;
+  supplier_rank?: number;
+  bank_account_number?: string;
+  bank_accounts: ContactBankAccount[];
+}
+
 // Partner interface based on Odoo's res.partner model
 export interface Partner {
   // Basic identification
@@ -2108,6 +2128,103 @@ export class OdooClient {
       return allEmployeesData;
     } catch (error) {
       console.error("Failed to fetch employees:", error);
+      throw error;
+    }
+  }
+
+  async getContacts(): Promise<Contact[]> {
+    if (!this.uid) {
+      throw new Error("Not authenticated. Call authenticate() first.");
+    }
+
+    try {
+      const contacts = (await this.callRPC("object", "execute_kw", [
+        this.config.database,
+        this.uid,
+        this.config.password,
+        "res.partner",
+        "search_read",
+        [[["active", "=", true]]],
+        {
+          fields: [
+            "id",
+            "name",
+            "display_name",
+            "email",
+            "phone",
+            "is_company",
+            "customer_rank",
+            "supplier_rank",
+            "bank_ids",
+          ],
+          order: "name",
+        },
+      ])) as Record<string, unknown>[];
+
+      const bankIds = [
+        ...new Set(
+          contacts.flatMap((contact) =>
+            Array.isArray(contact.bank_ids) ? (contact.bank_ids as number[]) : []
+          )
+        ),
+      ];
+
+      const bankAccountsByPartnerId: Record<number, ContactBankAccount[]> = {};
+      if (bankIds.length > 0) {
+        const banks = (await this.callRPC("object", "execute_kw", [
+          this.config.database,
+          this.uid,
+          this.config.password,
+          "res.partner.bank",
+          "read",
+          [bankIds],
+          {
+            fields: [
+              "id",
+              "acc_number",
+              "acc_holder_name",
+              "bank_bic",
+              "partner_id",
+            ],
+          },
+        ])) as Record<string, unknown>[];
+
+        for (const bank of banks) {
+          const partner = bank.partner_id as [number, string] | false;
+          if (!partner || !Array.isArray(partner)) continue;
+
+          const partnerId = partner[0];
+          if (!bankAccountsByPartnerId[partnerId]) {
+            bankAccountsByPartnerId[partnerId] = [];
+          }
+          bankAccountsByPartnerId[partnerId].push({
+            id: bank.id as number,
+            acc_number: bank.acc_number as string,
+            acc_holder_name: (bank.acc_holder_name as string) || undefined,
+            bank_bic: (bank.bank_bic as string) || undefined,
+          });
+        }
+      }
+
+      return contacts.map((contact) => {
+        const id = contact.id as number;
+        const bankAccounts = bankAccountsByPartnerId[id] || [];
+
+        return {
+          id,
+          name: (contact.name as string) || (contact.display_name as string) || `Contact ${id}`,
+          display_name: (contact.display_name as string) || undefined,
+          email: (contact.email as string) || undefined,
+          phone: (contact.phone as string) || undefined,
+          is_company: Boolean(contact.is_company),
+          customer_rank: (contact.customer_rank as number) || 0,
+          supplier_rank: (contact.supplier_rank as number) || 0,
+          bank_account_number: bankAccounts[0]?.acc_number,
+          bank_accounts: bankAccounts,
+        };
+      });
+    } catch (error) {
+      console.error("Failed to fetch contacts:", error);
       throw error;
     }
   }

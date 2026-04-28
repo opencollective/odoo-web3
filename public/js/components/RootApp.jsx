@@ -8,6 +8,7 @@ import { HomePage } from "./HomePage.jsx";
 import { TransactionsPage } from "./TransactionsPage.jsx";
 import { OdooSyncPage } from "./OdooSyncPage.jsx";
 import { OdooDoctorPage } from "./OdooDoctorPage.jsx";
+import { ContactsPage } from "./ContactsPage.jsx";
 import { SandboxBanner } from "./SandboxBanner.js";
 import { Router } from "./Router.js";
 import { getStorageKey } from "../config.js";
@@ -73,6 +74,11 @@ export function RootApp() {
           // Match /collectives - List of hosted collectives
           if (currentPath === "/collectives") {
             return <CollectivesPage navigate={navigate} />;
+          }
+
+          // Match /contacts - Odoo contacts
+          if (currentPath === "/contacts") {
+            return <ContactsPage navigate={navigate} />;
           }
 
           // Match /oc/:slug pattern for Open Collective expenses

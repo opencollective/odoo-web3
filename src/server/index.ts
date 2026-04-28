@@ -4,6 +4,7 @@ import { handleInvoicesRequest } from "./api/odoo/invoices.ts";
 import { handleInvoiceDetailsRequest } from "./api/odoo/invoice-details.ts";
 import { handleTransactionsRequest } from "./api/odoo/transactions.ts";
 import { handleEmployeesRequest } from "./api/odoo/employees.ts";
+import { handleContactsRequest } from "./api/odoo/contacts.ts";
 import { handleJournalsRequest } from "./api/odoo/journals.ts";
 import { handleSyncRequest } from "./api/odoo/sync.ts";
 import { handleDoctorRequest } from "./api/odoo/doctor.ts";
@@ -90,6 +91,10 @@ async function handleRequest(req: Request): Promise<Response> {
 
   if (url.pathname === "/api/odoo/employees") {
     return handleEmployeesRequest(req);
+  }
+
+  if (url.pathname === "/api/odoo/contacts") {
+    return handleContactsRequest(req);
   }
 
   if (url.pathname === "/api/odoo/journals") {
@@ -208,6 +213,7 @@ async function handleRequest(req: Request): Promise<Response> {
     url.pathname === "/index.html" ||
     url.pathname === "/bills" ||
     url.pathname === "/collectives" ||
+    url.pathname === "/contacts" ||
     url.pathname === "/settings" ||
     url.pathname === "/odoo/sync" ||
     url.pathname === "/odoo/doctor" ||
@@ -339,6 +345,7 @@ console.log(
   `   - /api/odoo/transactions - Fetch transactions from Odoo journal`
 );
 console.log(`   - /api/odoo/employees - Fetch employees with bank accounts`);
+console.log(`   - /api/odoo/contacts - Fetch contacts with bank accounts`);
 console.log(`   - /api/odoo/journals - List/create bank journals`);
 console.log(`   - /api/odoo/sync - Sync blockchain transactions to Odoo`);
 console.log(`   - /api/odoo/authenticate - Get Odoo session_id`);
@@ -360,6 +367,7 @@ console.log(`📄 Frontend routes:`);
 console.log(`   - / - Homepage`);
 console.log(`   - /bills - Odoo invoices list`);
 console.log(`   - /collectives - Hosted collectives list`);
+console.log(`   - /contacts - Odoo contacts list`);
 console.log(`   - /settings - Settings page`);
 console.log(`   - /invoices/:id - Invoice details view`);
 console.log(`   - /:year/:month - Monthly invoices view`);
