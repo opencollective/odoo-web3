@@ -1,6 +1,9 @@
 const { useState, useEffect, useCallback, useMemo, useRef } = React;
 import { getStorageKey } from "../config.js";
 import { PDFSidebar } from "./PDFSidebar.jsx";
+import { handlePay } from "../services/monerium.js";
+import { useWallet } from "../hooks/useWallet.js";
+import { PayModal } from "./PayModal.jsx";
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -188,9 +191,87 @@ function AccountEditModal({ address, settings, onSave, onClose }) {
   );
 }
 
+// ─── Refund button (for incoming tx matched to an already-paid invoice) ──
+
+function buildRefundMemo(invoice) {
+  const parts = [];
+  if (invoice.name) parts.push(invoice.name);
+  if (invoice.ref) parts.push(invoice.ref);
+  const base = parts.join(" - ");
+  const alreadyPaid = invoice.payment_state === "paid" ? " (already paid)" : "";
+  return `${base}${alreadyPaid}`.trim();
+}
+
+function RefundButton({ tx, invoice, wallet }) {
+  const [showModal, setShowModal] = useState(false);
+  const [orderId, setOrderId] = useState(null);
+
+  const disabled = !tx.counterpartyIban;
+  const amount = parseFloat(tx.amount);
+  const refundInvoice = {
+    id: `refund-${tx.id}-${invoice.id}`,
+    partner_name: tx.counterpartyName,
+    bank_account_number: tx.counterpartyIban,
+    amount_total: amount,
+    amount_residual: amount,
+    name: `Refund of ${invoice.name || invoice.ref || `invoice ${invoice.id}`}`,
+  };
+
+  const handleRefundPay = (invoiceToPay, memo, _selectedAccountAddress, recipientInfo) =>
+    handlePay(
+      invoiceToPay,
+      memo,
+      tx.address,
+      wallet?.walletAddress ? wallet.signMessage : null,
+      recipientInfo,
+      true
+    );
+
+  if (orderId) {
+    return (
+      <span
+        className="px-3 py-1 text-xs font-medium text-green-700 bg-green-50 rounded flex-shrink-0"
+        title={`Order ${orderId}`}
+      >
+        Refund sent
+      </span>
+    );
+  }
+
+  return (
+    <>
+      <button
+        onClick={() => setShowModal(true)}
+        disabled={disabled}
+        className="px-3 py-1 text-xs font-medium text-white bg-orange-600 rounded hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex-shrink-0"
+        title={
+          disabled
+            ? "Counterparty IBAN unknown — cannot refund"
+            : "Send the amount back to the counterparty"
+        }
+      >
+        Refund
+      </button>
+      {showModal && (
+        <PayModal
+          invoice={refundInvoice}
+          initialMemo={buildRefundMemo(invoice)}
+          wallet={wallet}
+          onPay={handleRefundPay}
+          onClose={() => setShowModal(false)}
+          onPaid={(result) => setOrderId(result?.id || "ok")}
+          title="Refund Payment"
+          payLabel="Refund"
+          allowMarkAsPaid={false}
+        />
+      )}
+    </>
+  );
+}
+
 // ─── Reconcile dropdown ────────────────────────────────────
 
-function ReconcileDropdown({ tx, onReconciled }) {
+function ReconcileDropdown({ tx, onReconciled, wallet }) {
   const [state, setState] = useState("loading");
   const [invoices, setInvoices] = useState([]);
   const [error, setError] = useState(null);
@@ -299,6 +380,8 @@ function ReconcileDropdown({ tx, onReconciled }) {
                 </div>
                 {inv.payment_state !== "paid" ? (
                   <button onClick={() => reconcile(inv.id)} className="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 flex-shrink-0">Reconcile</button>
+                ) : tx.kind === "issue" ? (
+                  <RefundButton tx={tx} invoice={inv} wallet={wallet} />
                 ) : (
                   <span className="px-3 py-1 text-xs font-medium text-yellow-600 flex-shrink-0">Paid</span>
                 )}
@@ -313,7 +396,7 @@ function ReconcileDropdown({ tx, onReconciled }) {
 
 // ─── Transaction row ───────────────────────────────────────
 
-function TransactionRow({ tx, onReconciled, accountSettings, onPreviewInvoice }) {
+function TransactionRow({ tx, onReconciled, accountSettings, onPreviewInvoice, wallet }) {
   const [expanded, setExpanded] = useState(false);
   const [reconciled, setReconciled] = useState(tx.isReconciled);
 
@@ -435,7 +518,7 @@ function TransactionRow({ tx, onReconciled, accountSettings, onPreviewInvoice })
             </div>
           )}
           {!reconciled && tx.state === "processed" && tx.txHashes.length > 0 && (
-            <ReconcileDropdown tx={tx} onReconciled={handleReconciled} />
+            <ReconcileDropdown tx={tx} onReconciled={handleReconciled} wallet={wallet} />
           )}
         </div>
       )}
@@ -540,6 +623,7 @@ function FilterBar({ filters, setFilters, counterparties, years }) {
 // ─── Main page ─────────────────────────────────────────────
 
 export function TransactionsPage({ navigate, account }) {
+  const wallet = useWallet();
   const [allTransactions, setAllTransactions] = useState([]);
   const [addresses, setAddresses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -860,6 +944,7 @@ export function TransactionsPage({ navigate, account }) {
                 tx={tx}
                 accountSettings={accountSettings}
                 onPreviewInvoice={handlePreviewInvoice}
+                wallet={wallet}
                 onReconciled={() => {
                   setAllTransactions((prev) =>
                     prev.map((t) => t.id === tx.id ? { ...t, isReconciled: true } : t)
