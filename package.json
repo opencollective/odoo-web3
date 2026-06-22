@@ -8,6 +8,7 @@
     "test:employees": "bun test --env-file=.env.test tests/get-employees.test.ts"
   },
   "dependencies": {
+    "@safe-global/api-kit": "4.2.0",
     "@safe-global/protocol-kit": "6.1.1",
     "@safe-global/safe-core-sdk-types": "^1.1.1",
     "@safe-global/types-kit": "^3.0.0",

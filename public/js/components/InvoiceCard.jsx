@@ -74,7 +74,12 @@ export function InvoiceCard({
     setShowPayModal(true);
   };
 
-  const handlePaid = (result, { markedAsPaid }) => {
+  const handlePaid = (result, { markedAsPaid, addedToBatch }) => {
+    if (addedToBatch) {
+      // Queued for batch signing — not paid yet, so don't mark it locally paid.
+      setPaySuccess("Added to payment batch");
+      return;
+    }
     if (markedAsPaid) {
       setPaySuccess("Invoice marked as paid");
     } else {

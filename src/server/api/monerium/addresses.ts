@@ -6,6 +6,7 @@ import {
   ENV,
   getBalance,
   getSafeSignatories,
+  getSafeThreshold,
 } from "./utils.ts";
 
 export async function handleMoneriumAddressesRequest(
@@ -118,16 +119,18 @@ export async function handleMoneriumAddressesRequest(
           continue;
         }
 
-        const [balance, signatories] = await Promise.all([
+        const [balance, signatories, threshold] = await Promise.all([
           getBalance(addressAddr, chainName),
           getSafeSignatories(addressAddr, chainName),
+          getSafeThreshold(addressAddr, chainName),
         ]);
 
         console.log(`Balance of ${addressAddr} on ${chainName}: ${balance}`);
         if (signatories) {
           console.log(
             `Signatories of ${addressAddr} on ${chainName}:`,
-            signatories.length
+            signatories.length,
+            `threshold: ${threshold}`
           );
         }
 
@@ -136,6 +139,7 @@ export async function handleMoneriumAddressesRequest(
           chain: chainName,
           balance,
           signatories: signatories || undefined,
+          threshold: threshold ?? undefined,
         });
       }
     }

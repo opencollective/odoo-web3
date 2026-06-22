@@ -17,6 +17,7 @@ import { handleMoneriumAddressesRequest } from "./api/monerium/addresses.ts";
 import { handleMoneriumOrderPlacement } from "./api/monerium/order.ts";
 import { handleMoneriumOrdersRequest } from "./api/monerium/orders.ts";
 import { handleMoneriumSignerAddressRequest } from "./api/monerium/signer-address.ts";
+import { handleSafeMessagePropose, handleSafeMessageStatus } from "./api/monerium/safe-message.ts";
 import { handleMoneriumCheckAddress } from "./api/monerium/check-address.ts";
 import { handleBatchOrder } from "./api/monerium/batch-order.ts";
 import { handleTransfersRequest } from "./api/monerium/transfers.ts";
@@ -159,6 +160,15 @@ async function handleRequest(req: Request): Promise<Response> {
 
   if (url.pathname === "/api/monerium/batch-order") {
     return handleBatchOrder(req);
+  }
+
+  // Safe multisig message: propose to the Safe Tx Service / poll for signatures
+  if (url.pathname === "/api/monerium/safe-message") {
+    return handleSafeMessagePropose(req);
+  }
+
+  if (url.pathname === "/api/monerium/safe-message/status") {
+    return handleSafeMessageStatus(req);
   }
 
   if (url.pathname === "/api/monerium/transfers") {

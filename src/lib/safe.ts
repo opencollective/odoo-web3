@@ -4,8 +4,10 @@ import Safe from "@safe-global/protocol-kit";
 import { SigningMethod } from "@safe-global/types-kit";
 import { getPrivateKey } from "./keystore.ts";
 
+export type SafeChain = "gnosis" | "chiado";
+
 // Get RPC URL based on chain
-function getRpcUrl(chain: "gnosis" | "chiado"): string {
+export function getRpcUrl(chain: SafeChain): string {
   const envRpcUrl = process.env.SAFE_RPC_URL;
   if (envRpcUrl) {
     return envRpcUrl;

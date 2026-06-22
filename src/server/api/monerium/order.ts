@@ -27,6 +27,7 @@ export async function handleMoneriumOrderPlacement(
       accessToken,
       accountAddress,
       signature: providedSignature,
+      message: providedMessage,
     } = body;
 
     if (!amount || !iban || !environment || !accessToken || !accountAddress) {
@@ -59,12 +60,20 @@ export async function handleMoneriumOrderPlacement(
       counterpartDetails.lastName = lastName;
     }
 
+    // When a multisig signature was collected for a specific message, the
+    // submitted message MUST match the one that was signed (same timestamp),
+    // otherwise the EIP-1271 verification fails. Reuse it verbatim if provided.
+    const orderMessage =
+      typeof providedMessage === "string" && providedMessage.length > 0
+        ? providedMessage
+        : `Send EUR ${amount} to ${iban} at ${new Date()
+            .toISOString()
+            .replace(/\.\d{3}Z$/, "Z")}`;
+
     const orderPayload = {
       amount: amount.toString(),
       currency: "eur",
-      message: `Send EUR ${amount} to ${iban} at ${new Date()
-        .toISOString()
-        .replace(/\.\d{3}Z$/, "Z")}`,
+      message: orderMessage,
       signature: "0x",
       address: accountAddress,
       chain: chainName,

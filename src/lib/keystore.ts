@@ -11,12 +11,50 @@
  * Format: base64(salt):base64(iv):base64(ciphertext):base64(authTag)
  */
 
+import { privateKeyToAccount } from "viem/accounts";
+
 const PBKDF2_ITERATIONS = 100_000;
 const SALT_BYTES = 16;
 const IV_BYTES = 12;
 
 // Only the passphrase lives in memory — the private key is decrypted on demand
 let storedPassphrase: string | null = null;
+
+// The signer's *public* address is not a secret, so we cache it once derived.
+// This lets us display "who signs" even while the keystore is locked (e.g. after
+// a restart, before the passphrase has been re-entered).
+let cachedSignerAddress: string | null = null;
+
+/**
+ * Return the public address of the server's signing key.
+ *
+ * Resolution order:
+ *  1. A previously derived/cached address (survives a later lock within the process).
+ *  2. The `SIGNER_ADDRESS` env var (public, safe to expose even while locked).
+ *  3. Derived from the decrypted private key when the keystore is unlocked.
+ *
+ * Returns null only when the address is genuinely unknown (locked, never unlocked,
+ * and no SIGNER_ADDRESS configured).
+ */
+export async function getSignerAddress(): Promise<string | null> {
+  if (cachedSignerAddress) return cachedSignerAddress;
+
+  if (process.env.SIGNER_ADDRESS) {
+    cachedSignerAddress = process.env.SIGNER_ADDRESS;
+    return cachedSignerAddress;
+  }
+
+  const privateKey = await getPrivateKey();
+  if (!privateKey) return null;
+
+  const formatted = privateKey.startsWith("0x")
+    ? privateKey
+    : `0x${privateKey}`;
+  cachedSignerAddress = privateKeyToAccount(
+    formatted as `0x${string}`
+  ).address;
+  return cachedSignerAddress;
+}
 
 /**
  * Decrypt and return the private key on demand.

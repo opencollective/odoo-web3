@@ -263,6 +263,7 @@ function RefundButton({ tx, invoice, wallet }) {
           title="Refund Payment"
           payLabel="Refund"
           allowMarkAsPaid={false}
+          allowBatch={false}
         />
       )}
     </>
