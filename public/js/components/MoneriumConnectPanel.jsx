@@ -349,6 +349,7 @@ export function MoneriumConnectPanel({ connection, onConnectionChange, embedded 
       accountAddress: account.address,
       accountChain: account.chain || null,
       accountSignatories: account.signatories || null,
+      accountThreshold: account.threshold ?? null,
     };
     localStorage.setItem(
       getStorageKey("monerium_connection"),

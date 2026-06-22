@@ -1,34 +1,20 @@
-import { privateKeyToAccount } from "viem/accounts";
 import { corsHeaders } from "../shared.ts";
-import { getPrivateKey } from "../../../lib/keystore.ts";
+import { getSignerAddress, isUnlocked } from "../../../lib/keystore.ts";
 
 export async function handleMoneriumSignerAddressRequest(): Promise<Response> {
   try {
-    let privateKey = await getPrivateKey();
-    if (!privateKey) {
-      // Key locked or not configured — use WalletConnect
-      return new Response(
-        JSON.stringify({
-          address: null,
-          useWalletConnect: true,
-        }),
-        {
-          status: 200,
-          headers: corsHeaders,
-        }
-      );
-    }
+    // The signer's public address can be known even while the keystore is locked
+    // (via cache or SIGNER_ADDRESS env). `locked` tells the client whether a
+    // passphrase will still be required before signing.
+    const address = await getSignerAddress();
+    const locked = !isUnlocked();
 
-    if (!privateKey.startsWith("0x")) {
-      privateKey = `0x${privateKey}`;
-    }
-
-    const account = privateKeyToAccount(privateKey as `0x${string}`);
-    
     return new Response(
       JSON.stringify({
-        address: account.address,
-        useWalletConnect: false,
+        address,
+        locked,
+        // Fall back to WalletConnect only when we can't identify a server signer.
+        useWalletConnect: !address,
       }),
       {
         status: 200,

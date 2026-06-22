@@ -206,6 +206,39 @@ function KeystoreSetupStep({ onComplete, onSkip, selectedAccount }) {
   const [passphrase, setPassphrase] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [result, setResult] = useState(null);
+  // When the selected account is a multisig (M-of-N) Safe, collecting the extra
+  // signatures requires the Safe Transaction Service, which needs SAFE_API_KEY
+  // (or a custom SAFE_TX_SERVICE_URL) on the server. Block setup if it's missing.
+  const [multisigKeyMissing, setMultisigKeyMissing] = useState(false);
+
+  const isMultisigSafe = Boolean(
+    selectedAccount?.signatories?.length &&
+      typeof selectedAccount.threshold === "number" &&
+      selectedAccount.threshold > 1
+  );
+
+  useEffect(() => {
+    if (!isMultisigSafe) {
+      setMultisigKeyMissing(false);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/monerium/config")
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (cancelled) return;
+        const configured =
+          cfg.safeApiKeyConfigured || cfg.safeTxServiceUrlConfigured;
+        setMultisigKeyMissing(!configured);
+      })
+      .catch(() => {
+        // If the config check fails we can't confirm it's set — flag it.
+        if (!cancelled) setMultisigKeyMissing(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isMultisigSafe, selectedAccount?.address]);
 
   const handleVerify = async () => {
     if (!passphrase) return;
@@ -266,6 +299,23 @@ function KeystoreSetupStep({ onComplete, onSkip, selectedAccount }) {
         Your server has an encrypted private key for signing transactions.
         Enter the passphrase to decrypt it.
       </p>
+
+      {multisigKeyMissing && (
+        <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
+          <p className="font-medium mb-1">
+            Multisig Safe detected ({selectedAccount.threshold}-of-
+            {selectedAccount.signatories.length}) but{" "}
+            <code className="bg-red-100 px-1 py-0.5 rounded">SAFE_API_KEY</code>{" "}
+            is not configured.
+          </p>
+          <p>
+            Collecting the additional signatures needs the Safe Transaction
+            Service. Set <code>SAFE_API_KEY</code> (from the Safe developer
+            portal) — or a self-hosted <code>SAFE_TX_SERVICE_URL</code> — in the
+            server environment, then reload this page.
+          </p>
+        </div>
+      )}
       <div className="mb-4">
         <label className="block text-xs font-medium text-gray-600 mb-1">
           Passphrase
@@ -331,7 +381,8 @@ function KeystoreSetupStep({ onComplete, onSkip, selectedAccount }) {
         {result?.success ? (
           <button
             onClick={onComplete}
-            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+            disabled={multisigKeyMissing}
+            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
           >
             Continue
           </button>
@@ -786,6 +837,7 @@ export function HomePage({ navigate }) {
                       address: setup.monerium.accountAddress,
                       chain: setup.monerium.accountChain || null,
                       signatories: setup.monerium.accountSignatories || null,
+                      threshold: setup.monerium.accountThreshold ?? null,
                     }
                   : null
               }

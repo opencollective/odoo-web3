@@ -40,6 +40,13 @@ const SAFE_ABI = [
     outputs: [{ name: "", type: "address[]" }],
     type: "function",
   },
+  {
+    constant: true,
+    inputs: [],
+    name: "getThreshold",
+    outputs: [{ name: "", type: "uint256" }],
+    type: "function",
+  },
 ] as const;
 
 const chainMap: Record<string, typeof gnosis | typeof gnosisChiado> = {
@@ -109,6 +116,37 @@ export async function getSafeSignatories(
       `Address ${address} on ${chain} is not a Safe contract or getOwners failed:`,
       error instanceof Error ? error.message : String(error)
     );
+    return null;
+  }
+}
+
+/**
+ * Read a Safe's signature threshold (number of owners required to sign).
+ * Returns null when the address is not a Safe.
+ */
+export async function getSafeThreshold(
+  address: Address,
+  chain: string
+): Promise<number | null> {
+  const viemChain = chainMap[chain.toLowerCase()];
+  if (!viemChain) {
+    return null;
+  }
+
+  const client = createPublicClient({
+    chain: viemChain,
+    transport: http(),
+  });
+
+  try {
+    const threshold = (await client.readContract({
+      address: address,
+      abi: SAFE_ABI,
+      functionName: "getThreshold",
+    })) as bigint;
+
+    return Number(threshold);
+  } catch {
     return null;
   }
 }

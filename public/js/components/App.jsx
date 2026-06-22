@@ -1,6 +1,7 @@
 import { BillsStats } from "./BillsStats.jsx";
 import { InvoiceCard } from "./InvoiceCard.jsx";
 import { PDFSidebar } from "./PDFSidebar.jsx";
+import { BatchPanel } from "./BatchPanel.jsx";
 import { getStorageKey } from "../config.js";
 import {
   loadMoneriumConnectionState,
@@ -676,6 +677,8 @@ export function App() {
           sessionId={sessionId}
         />
       )}
+
+      <BatchPanel />
     </div>
   );
 }

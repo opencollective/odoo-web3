@@ -1,4 +1,5 @@
 import { isInvoicePaid, markInvoiceAsPaid, getSelectedMoneriumAccount, setSelectedMoneriumAccount } from "../utils/storage.js";
+import { addToBatch, isInBatch } from "../utils/batch.js";
 import { getStorageKey } from "../config.js";
 import { KeyLockedError, unlockServer } from "../services/monerium.js";
 import {
@@ -34,6 +35,13 @@ export function InvoiceCard({
   // Helper function to get validation error for an account
   const getValidationError = (account, signerAddress) => {
     if (!account || account.usable !== false) {
+      return null;
+    }
+
+    // Signer unknown (server key locked / not yet unlocked and no wallet connected).
+    // Don't fabricate a "(null) is not a signatory" error and don't block Pay —
+    // the pay flow will prompt for the passphrase and validate once unlocked.
+    if (!signerAddress) {
       return null;
     }
 
@@ -249,6 +257,47 @@ export function InvoiceCard({
       console.warn("Failed to clear Monerium connection:", err);
     }
     window.location.assign("/monerium");
+  };
+
+  const handleAddToBatch = (e) => {
+    if (e) e.stopPropagation();
+    const amount = invoice.amount_residual ?? invoice.amount_total;
+    const iban =
+      recipientType === "employee"
+        ? selectedEmployee?.bank_account_number
+        : invoice.bank_account_number;
+    const name =
+      recipientType === "employee"
+        ? selectedEmployee?.name
+        : invoice.partner_name;
+    if (!iban) {
+      setPayError("Missing bank account number for the selected recipient.");
+      return;
+    }
+    if (selectedAccountAddress) setSelectedMoneriumAccount(selectedAccountAddress);
+
+    // Environment is derived from the stored Monerium connection.
+    let environment = "sandbox";
+    try {
+      const stored = localStorage.getItem(getStorageKey("monerium_connection"));
+      if (stored) environment = JSON.parse(stored).environment || environment;
+    } catch (err) {
+      // fall back to sandbox
+    }
+
+    const added = addToBatch({
+      invoiceId: invoice.id,
+      label: name,
+      amount,
+      iban,
+      memo,
+      recipientType: recipientType === "employee" ? "individual" : "company",
+      name,
+      accountAddress: selectedAccountAddress,
+      environment,
+    });
+    setPaySuccess(added ? "Added to payment batch" : "Already in the batch");
+    setShowPayModal(false);
   };
 
   const handleConfirmPay = async (e) => {
@@ -842,6 +891,18 @@ export function InvoiceCard({
                 disabled={paying}
               >
                 Cancel
+              </button>
+              <button
+                onClick={handleAddToBatch}
+                disabled={
+                  paying ||
+                  (recipientType === "partner" && !invoice.bank_account_number) ||
+                  (recipientType === "employee" && !selectedEmployee?.bank_account_number)
+                }
+                className="inline-flex items-center justify-center space-x-2 border border-green-600 text-green-700 hover:bg-green-50 disabled:border-gray-300 disabled:text-gray-400 px-4 py-2 rounded-lg transition-colors"
+                title="Queue for batch signing instead of paying now"
+              >
+                <span>Add to batch</span>
               </button>
               <button
                 onClick={handleConfirmPay}
