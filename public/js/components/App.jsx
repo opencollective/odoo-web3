@@ -2,6 +2,7 @@ import { BillsStats } from "./BillsStats.jsx";
 import { InvoiceCard } from "./InvoiceCard.jsx";
 import { PDFSidebar } from "./PDFSidebar.jsx";
 import { BatchPanel } from "./BatchPanel.jsx";
+import { MultisigConfigWarning } from "./MultisigConfigWarning.jsx";
 import { getStorageKey } from "../config.js";
 import {
   loadMoneriumConnectionState,
@@ -393,6 +394,7 @@ export function App() {
             &larr; Back to Home
           </button>
         </div>
+        <MultisigConfigWarning />
         <div className="mb-8 flex items-center justify-between">
           <div>
             <h1 className="text-4xl font-bold text-gray-900">

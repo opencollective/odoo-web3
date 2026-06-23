@@ -4,6 +4,7 @@ import {
   getSelectedMoneriumAccount,
 } from "../utils/storage.js";
 import { MoneriumConnectPanel } from "./MoneriumConnectPanel.jsx";
+import { MultisigConfigWarning } from "./MultisigConfigWarning.jsx";
 
 const { useState, useEffect } = React;
 
@@ -777,6 +778,7 @@ export function HomePage({ navigate }) {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="max-w-6xl mx-auto px-4 py-16">
+          <MultisigConfigWarning />
           <Dashboard navigate={navigate} />
         </div>
       </div>

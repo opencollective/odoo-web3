@@ -6,6 +6,26 @@ import { LoaderIcon } from "./icons.jsx";
 
 const { useState, useEffect, useCallback } = React;
 
+// Describe the on-chain wallet type behind a Monerium account.
+function walletTypeLabel(account) {
+  if (!account) return null;
+  const owners = account.signatories?.length || 0;
+  if (owners > 0) {
+    return typeof account.threshold === "number"
+      ? `Safe multisig · ${account.threshold}-of-${owners}`
+      : `Safe · ${owners} owner${owners !== 1 ? "s" : ""}`;
+  }
+  return "Standard wallet (EOA)";
+}
+
+function isMultisig(account) {
+  return Boolean(
+    account?.signatories?.length &&
+      typeof account.threshold === "number" &&
+      account.threshold > 1
+  );
+}
+
 function CopyableAddress({ address, chain }) {
   const [copied, setCopied] = useState(false);
   const short = formatAddress(address);
@@ -136,7 +156,9 @@ export function MoneriumConnectPanel({ connection, onConnectionChange, embedded 
   }, [connection?.accessToken, environment]);
 
   useEffect(() => {
-    if (connection?.accessToken && !connection.accountAddress) {
+    // Load account details whenever connected — even once an account is selected —
+    // so we can show its wallet type (EOA vs Safe + threshold) in settings.
+    if (connection?.accessToken) {
       fetchAddresses();
     }
   }, [connection?.accessToken, connection?.accountAddress, fetchAddresses]);
@@ -405,8 +427,13 @@ export function MoneriumConnectPanel({ connection, onConnectionChange, embedded 
               <div className="flex items-center gap-3 min-w-0">
                 <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isSelected ? "bg-blue-500" : "bg-gray-300"}`} />
                 <div className="min-w-0">
-                  <CopyableAddress address={account.address} chain={account.chain} />
-                  <span className="text-xs text-gray-400 ml-2">{account.chain}</span>
+                  <div>
+                    <CopyableAddress address={account.address} chain={account.chain} />
+                    <span className="text-xs text-gray-400 ml-2">{account.chain}</span>
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    {walletTypeLabel(account)}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-3 flex-shrink-0">
@@ -504,28 +531,57 @@ export function MoneriumConnectPanel({ connection, onConnectionChange, embedded 
         </div>
       )}
 
-      {connection?.accessToken && connection.accountAddress && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-gray-700">
-              Using account{" "}
-              <CopyableAddress
-                address={connection.accountAddress}
-                chain={connection.accountChain || "gnosis"}
-              />
+      {connection?.accessToken && connection.accountAddress && (() => {
+        // Prefer freshly fetched account details; fall back to what was stored
+        // on the connection when the account was selected.
+        const selectedAccount =
+          accounts.find(
+            (a) =>
+              a.address?.toLowerCase() ===
+              connection.accountAddress.toLowerCase()
+          ) || {
+            address: connection.accountAddress,
+            chain: connection.accountChain,
+            signatories: connection.accountSignatories,
+            threshold: connection.accountThreshold,
+          };
+        const typeLabel = walletTypeLabel(selectedAccount);
+        return (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-700">
+                Using account{" "}
+                <CopyableAddress
+                  address={connection.accountAddress}
+                  chain={connection.accountChain || "gnosis"}
+                />
+                {typeLabel && (
+                  <span className="text-xs text-gray-500 ml-2">
+                    · {typeLabel}
+                  </span>
+                )}
+              </div>
+              {embedded && (
+                <button
+                  type="button"
+                  onClick={handleDisconnect}
+                  className="text-xs text-red-500 hover:text-red-700"
+                >
+                  Disconnect
+                </button>
+              )}
             </div>
-            {embedded && (
-              <button
-                type="button"
-                onClick={handleDisconnect}
-                className="text-xs text-red-500 hover:text-red-700"
-              >
-                Disconnect
-              </button>
+            {isMultisig(selectedAccount) && (
+              <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                This is a multisig Safe ({selectedAccount.threshold}-of-
+                {selectedAccount.signatories.length}). Payments need{" "}
+                {selectedAccount.threshold} signatures, collected via the batch
+                (requires <code>SAFE_API_KEY</code> on the server).
+              </div>
             )}
           </div>
-        </div>
-      )}
+        );
+      })()}
     </Wrapper>
   );
 }
