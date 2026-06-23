@@ -111,10 +111,15 @@ export const handlePay = async (
   // Use amount_residual (amount due) if available, otherwise fall back to amount_total
   const amountToPay = invoice.amount_residual ?? invoice.amount_total;
 
-  // Prepare order payload
+  // Prepare order payload.
+  // Monerium accepts the signature only within ~5 minutes of the timestamp, so
+  // stamp it a few minutes ahead to absorb signing / unlock / network delays.
+  const SIGNATURE_VALIDITY_BUFFER_MS = 5 * 60 * 1000;
   const messageToSign = `Send EUR ${amountToPay} to ${
     invoice.bank_account_number
-  } at ${new Date().toISOString().replace(/\.\d{3}Z$/, "Z")}`;
+  } at ${new Date(Date.now() + SIGNATURE_VALIDITY_BUFFER_MS)
+    .toISOString()
+    .replace(/\.\d{3}Z$/, "Z")}`;
 
   // Sign message with wallet if walletSignMessage is provided
   let signature = null;

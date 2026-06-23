@@ -1,6 +1,9 @@
 import { test, expect } from "bun:test";
 
-import { buildOrderMessage } from "../src/server/api/monerium/safe-message.ts";
+import {
+  buildOrderMessage,
+  SIGNATURE_VALIDITY_BUFFER_MS,
+} from "../src/server/api/monerium/safe-message.ts";
 import { getSafeMessagesUrl } from "../src/lib/safe-message.ts";
 
 test("buildOrderMessage produces the Monerium order format with a UTC timestamp", () => {
@@ -8,6 +11,16 @@ test("buildOrderMessage produces the Monerium order format with a UTC timestamp"
   expect(message).toMatch(
     /^Send EUR 12\.5 to EE127310138155512606682602 at \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/
   );
+});
+
+test("buildOrderMessage stamps the timestamp ~5 minutes ahead for signing headroom", () => {
+  expect(SIGNATURE_VALIDITY_BUFFER_MS).toBe(5 * 60 * 1000);
+  const message = buildOrderMessage(1, "EE127310138155512606682602");
+  const ts = Date.parse(message.match(/ at (.+)$/)![1]);
+  const aheadMs = ts - Date.now();
+  // Should be close to +5min (allow a few seconds of slack for execution time).
+  expect(aheadMs).toBeGreaterThan(SIGNATURE_VALIDITY_BUFFER_MS - 10_000);
+  expect(aheadMs).toBeLessThanOrEqual(SIGNATURE_VALIDITY_BUFFER_MS + 1_000);
 });
 
 test("getSafeMessagesUrl points at the Safe web app messages tab per chain", () => {
