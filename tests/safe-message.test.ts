@@ -3,22 +3,23 @@ import { test, expect } from "bun:test";
 import { buildOrderMessage } from "../src/server/api/monerium/safe-message.ts";
 import { getSafeMessagesUrl } from "../src/lib/safe-message.ts";
 
-test("buildOrderMessage produces the Monerium order format with a UTC timestamp", () => {
+test("buildOrderMessage uses an RFC3339 minute-precision timestamp (no seconds)", () => {
+  // Monerium requires minute precision; a timestamp with seconds breaks EIP-1271
+  // verification because Monerium normalizes to the minute before hashing.
   const message = buildOrderMessage(12.5, "EE127310138155512606682602");
   expect(message).toMatch(
-    /^Send EUR 12\.5 to EE127310138155512606682602 at \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/
+    /^Send EUR 12\.5 to EE127310138155512606682602 at \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z$/
   );
+  expect(message).not.toMatch(/:\d{2}:\d{2}Z$/); // no seconds component
 });
 
-test("buildOrderMessage uses the current time, not a future timestamp", () => {
-  // Monerium rejects future-dated timestamps ("timestamp is expired"), so the
-  // message timestamp must be at/just-before now.
+test("buildOrderMessage timestamp is the current minute (within 5 min, not future)", () => {
   const message = buildOrderMessage(1, "EE127310138155512606682602");
   const ts = Date.parse(message.match(/ at (.+)$/)![1]);
   const deltaMs = ts - Date.now();
-  // Within a couple of seconds of now and never in the future.
+  // Truncated to the minute, so it can be up to ~60s behind now, never ahead.
   expect(deltaMs).toBeLessThanOrEqual(1_000);
-  expect(deltaMs).toBeGreaterThan(-5_000);
+  expect(deltaMs).toBeGreaterThan(-61_000);
 });
 
 test("buildOrderMessage normalizes the IBAN (strips spaces, uppercases)", () => {

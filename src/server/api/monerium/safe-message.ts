@@ -7,11 +7,17 @@ import {
 import type { SafeChain } from "../../../lib/safe.ts";
 import { normalizeIban } from "./utils.ts";
 
-// Monerium accepts an order signature only for ~5 minutes AFTER the message
-// timestamp, and the timestamp must not be in the future. So use the current
-// time — a future timestamp is rejected as "timestamp is expired". For a
-// multisig Safe, the extra signatures therefore have to be collected within
-// that ~5 minute window.
+// Monerium requires the order-message timestamp in RFC3339 format accurate to
+// the MINUTE (no seconds), e.g. "2024-07-12T12:02Z", within 5 minutes of now.
+// Monerium normalizes the timestamp to minute precision before recomputing the
+// message hash it verifies, so a timestamp with seconds yields a different hash
+// than what was signed -> EIP-1271 "address mismatch".
+// https://docs.monerium.com/whitelabel/#signing-an-order
+
+/** Format a Date as an RFC3339 minute-precision UTC timestamp (no seconds). */
+function minuteTimestamp(date: Date): string {
+  return `${date.toISOString().slice(0, 16)}Z`;
+}
 
 /**
  * Build the exact (frozen) Monerium order message. The timestamp must stay
@@ -19,10 +25,11 @@ import { normalizeIban } from "./utils.ts";
  * it once and pass it back verbatim.
  */
 export function buildOrderMessage(amount: number | string, iban: string): string {
-  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   // Use the normalized IBAN (no spaces) so the signed message matches the
   // canonical order details.
-  return `Send EUR ${amount} to ${normalizeIban(iban)} at ${timestamp}`;
+  return `Send EUR ${amount} to ${normalizeIban(iban)} at ${minuteTimestamp(
+    new Date()
+  )}`;
 }
 
 function chainForEnvironment(environment?: string): SafeChain {
