@@ -3,14 +3,14 @@ import { test, expect } from "bun:test";
 import { buildOrderMessage } from "../src/server/api/monerium/safe-message.ts";
 import { getSafeMessagesUrl } from "../src/lib/safe-message.ts";
 
-test("buildOrderMessage uses an RFC3339 minute-precision timestamp (no seconds)", () => {
-  // Monerium requires minute precision; a timestamp with seconds breaks EIP-1271
-  // verification because Monerium normalizes to the minute before hashing.
+test("buildOrderMessage uses full RFC3339 with the seconds zeroed (':00')", () => {
+  // Monerium normalizes to the minute before hashing (so real seconds break
+  // EIP-1271 verification), but the seconds field must still be present (dropping
+  // it is "invalid timestamp format"). So seconds must be exactly "00".
   const message = buildOrderMessage(12.5, "EE127310138155512606682602");
   expect(message).toMatch(
-    /^Send EUR 12\.5 to EE127310138155512606682602 at \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z$/
+    /^Send EUR 12\.5 to EE127310138155512606682602 at \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00Z$/
   );
-  expect(message).not.toMatch(/:\d{2}:\d{2}Z$/); // no seconds component
 });
 
 test("buildOrderMessage timestamp is the current minute (within 5 min, not future)", () => {

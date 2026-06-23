@@ -139,10 +139,12 @@ export async function handleBatchOrder(req: Request): Promise<Response> {
     }
 
     // Generate signature for batch.
-    // Monerium requires the timestamp in RFC3339 accurate to the MINUTE (no
-    // seconds); it normalizes to minute precision before verifying, so seconds
-    // cause an EIP-1271 "address mismatch".
-    const timestamp = `${new Date().toISOString().slice(0, 16)}Z`;
+    // Monerium requires the timestamp in full RFC3339 but accurate to the MINUTE:
+    // the seconds field must be present but zeroed (":00"). Real seconds cause an
+    // EIP-1271 "address mismatch"; dropping the field is an invalid format.
+    const tsDate = new Date();
+    tsDate.setSeconds(0, 0);
+    const timestamp = tsDate.toISOString().replace(/\.\d{3}Z$/, "Z");
     const batchMessage = `Batch payment: ${
       payments.length
     } transactions, total €${totalAmount.toFixed(2)} at ${timestamp}`;

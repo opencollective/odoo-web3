@@ -112,17 +112,21 @@ export const handlePay = async (
   const amountToPay = invoice.amount_residual ?? invoice.amount_total;
 
   // Prepare order payload.
-  // Monerium requires the timestamp in RFC3339 accurate to the MINUTE (no
-  // seconds) — it normalizes to minute precision before verifying, so seconds
-  // cause an EIP-1271 hash/"address mismatch". Normalize the IBAN (no spaces)
-  // too, so the signed message matches the canonical order details (and the
-  // server's buildOrderMessage). https://docs.monerium.com/whitelabel/#signing-an-order
+  // Monerium requires the timestamp in full RFC3339 but accurate to the MINUTE:
+  // the seconds field must be present but zeroed (":00"). Real seconds cause an
+  // EIP-1271 hash/"address mismatch" (Monerium normalizes to the minute) and
+  // dropping the seconds field is an "invalid timestamp format". Normalize the
+  // IBAN (no spaces) too, so the signed message matches the canonical order
+  // details (and the server's buildOrderMessage).
+  // https://docs.monerium.com/whitelabel/#signing-an-order
   const normalizedIban = invoice.bank_account_number
     .toUpperCase()
     .replace(/\s/g, "");
-  const messageToSign = `Send EUR ${amountToPay} to ${normalizedIban} at ${new Date()
+  const ts = new Date();
+  ts.setSeconds(0, 0);
+  const messageToSign = `Send EUR ${amountToPay} to ${normalizedIban} at ${ts
     .toISOString()
-    .slice(0, 16)}Z`;
+    .replace(/\.\d{3}Z$/, "Z")}`;
 
   // Sign message with wallet if walletSignMessage is provided
   let signature = null;

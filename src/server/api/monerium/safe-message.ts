@@ -7,16 +7,18 @@ import {
 import type { SafeChain } from "../../../lib/safe.ts";
 import { normalizeIban } from "./utils.ts";
 
-// Monerium requires the order-message timestamp in RFC3339 format accurate to
-// the MINUTE (no seconds), e.g. "2024-07-12T12:02Z", within 5 minutes of now.
-// Monerium normalizes the timestamp to minute precision before recomputing the
-// message hash it verifies, so a timestamp with seconds yields a different hash
-// than what was signed -> EIP-1271 "address mismatch".
-// https://docs.monerium.com/whitelabel/#signing-an-order
+// Monerium requires the order-message timestamp in full RFC3339 format but
+// accurate to the MINUTE: the seconds field must be present yet zeroed (":00").
+// It normalizes the timestamp to minute precision before recomputing the message
+// hash it verifies, so real seconds yield a different hash than what was signed
+// (EIP-1271 "address mismatch"), while dropping the seconds field entirely is an
+// "invalid timestamp format". https://docs.monerium.com/whitelabel/#signing-an-order
 
-/** Format a Date as an RFC3339 minute-precision UTC timestamp (no seconds). */
+/** Format a Date as an RFC3339 UTC timestamp with the seconds zeroed (":00"). */
 function minuteTimestamp(date: Date): string {
-  return `${date.toISOString().slice(0, 16)}Z`;
+  const d = new Date(date.getTime());
+  d.setSeconds(0, 0);
+  return d.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
 /**
