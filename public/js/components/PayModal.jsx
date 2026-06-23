@@ -263,9 +263,25 @@ export function PayModal({
   };
 
   const amountToShow = invoice.amount_residual ?? invoice.amount_total;
+
+  // A multisig (M-of-N) Safe needs more than one signature, which a one-shot
+  // payment can't provide — Monerium rejects it ("signature no longer valid /
+  // address mismatch"). Such payments must go through the batch, which collects
+  // the extra signatures via the Safe Transaction Service.
+  const selectedAccountObj = availableAccounts.find(
+    (acc) =>
+      acc.address.toLowerCase() === (selectedAccountAddress || "").toLowerCase()
+  );
+  const isMultisigSafe = Boolean(
+    selectedAccountObj?.signatories?.length &&
+      typeof selectedAccountObj.threshold === "number" &&
+      selectedAccountObj.threshold > 1
+  );
+
   const payButtonDisabled =
     paying ||
     addressValidationError ||
+    (allowBatch && isMultisigSafe) ||
     (recipientType === "partner" && !invoice.bank_account_number) ||
     (recipientType === "employee" && !selectedEmployee?.bank_account_number);
 
@@ -460,6 +476,15 @@ export function PayModal({
               )}
             </div>
           )}
+          {allowBatch && isMultisigSafe && (
+            <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              This is a {selectedAccountObj.threshold}-of-
+              {selectedAccountObj.signatories.length} Safe. A single signature
+              isn't enough to authorize this payment — use{" "}
+              <span className="font-medium">Add to batch</span> to collect the
+              required signatures from the other owners.
+            </div>
+          )}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
               Memo / Reference
@@ -544,7 +569,11 @@ export function PayModal({
                 (recipientType === "employee" &&
                   !selectedEmployee?.bank_account_number)
               }
-              className="inline-flex items-center justify-center space-x-2 border border-green-600 text-green-700 hover:bg-green-50 disabled:border-gray-300 disabled:text-gray-400 px-4 py-2 rounded-lg transition-colors"
+              className={
+                isMultisigSafe
+                  ? "inline-flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg transition-colors"
+                  : "inline-flex items-center justify-center space-x-2 border border-green-600 text-green-700 hover:bg-green-50 disabled:border-gray-300 disabled:text-gray-400 px-4 py-2 rounded-lg transition-colors"
+              }
               title="Queue for batch signing instead of paying now"
             >
               <span>Add to batch</span>
