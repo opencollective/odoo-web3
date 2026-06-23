@@ -138,8 +138,13 @@ export async function handleBatchOrder(req: Request): Promise<Response> {
       // Continue anyway
     }
 
-    // Generate signature for batch
-    const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+    // Generate signature for batch.
+    // Monerium accepts the signature only within ~5 minutes of the timestamp, so
+    // stamp it a few minutes ahead to absorb signing / unlock / network delays.
+    const SIGNATURE_VALIDITY_BUFFER_MS = 5 * 60 * 1000;
+    const timestamp = new Date(Date.now() + SIGNATURE_VALIDITY_BUFFER_MS)
+      .toISOString()
+      .replace(/\.\d{3}Z$/, "Z");
     const batchMessage = `Batch payment: ${
       payments.length
     } transactions, total €${totalAmount.toFixed(2)} at ${timestamp}`;

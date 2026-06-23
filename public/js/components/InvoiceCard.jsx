@@ -1,4 +1,5 @@
 import { isInvoicePaid } from "../utils/storage.js";
+import { isInBatch } from "../utils/batch.js";
 import {
   IncomingIcon,
   OutgoingIcon,
@@ -36,12 +37,26 @@ export function InvoiceCard({
   const [paySuccess, setPaySuccess] = useState(null);
   const [showPayModal, setShowPayModal] = useState(false);
   const [isPaidLocally, setIsPaidLocally] = useState(false);
+  const [batched, setBatched] = useState(false);
 
   useEffect(() => {
     setExpanded(false);
     setPaySuccess(null);
     setIsPaidLocally(isInvoicePaid(invoice.id));
+    setBatched(isInBatch(invoice.id));
   }, [invoice.id, invoice.ref, invoice.name, firstLineItem?.name]);
+
+  // Keep the batched / paid status in sync as the batch is processed or cleared:
+  // queuing shows "Batched", removal reverts it, and a processed batch marks paid.
+  useEffect(() => {
+    const refresh = () => {
+      setIsPaidLocally(isInvoicePaid(invoice.id));
+      setBatched(isInBatch(invoice.id));
+    };
+    window.addEventListener("payment-batch-updated", refresh);
+    return () =>
+      window.removeEventListener("payment-batch-updated", refresh);
+  }, [invoice.id]);
 
   const isIncoming =
     invoice.move_type === "in_invoice" || invoice.move_type === "in_refund";
@@ -64,6 +79,7 @@ export function InvoiceCard({
     typeof onPay === "function" &&
     invoice.payment_state !== "paid" &&
     !isPaidLocally &&
+    !batched &&
     invoice.state !== "draft" &&
     !paySuccess &&
     (invoice.amount_residual ?? invoice.amount_total) > 0;
@@ -76,8 +92,9 @@ export function InvoiceCard({
 
   const handlePaid = (result, { markedAsPaid, addedToBatch }) => {
     if (addedToBatch) {
-      // Queued for batch signing — not paid yet, so don't mark it locally paid.
-      setPaySuccess("Added to payment batch");
+      // Queued for batch signing — NOT paid yet. Show "Batched"; it's only marked
+      // paid once the batch is actually processed (and reverts if removed/cleared).
+      setBatched(true);
       return;
     }
     if (markedAsPaid) {
@@ -144,6 +161,11 @@ export function InvoiceCard({
                   Paid
                 </span>
               )}
+              {!isPaid && batched && (
+                <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
+                  Batched
+                </span>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
               <span>{invoice.date || "—"}</span>
@@ -174,6 +196,11 @@ export function InvoiceCard({
             {!canPay && paySuccess && (
               <div className="text-xs text-green-600 bg-green-50 border border-green-100 rounded px-3 py-2">
                 {paySuccess}
+              </div>
+            )}
+            {!canPay && !paySuccess && !isPaid && batched && (
+              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded px-3 py-2">
+                In batch
               </div>
             )}
           </div>

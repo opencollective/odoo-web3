@@ -3,6 +3,7 @@ import { signMessage } from "../../../lib/safe.ts";
 import { corsHeaders } from "../shared.ts";
 import { normalizeIban } from "./utils.ts";
 import { getPrivateKey } from "../../../lib/keystore.ts";
+import { buildOrderMessage } from "./safe-message.ts";
 
 export async function handleMoneriumOrderPlacement(
   req: Request
@@ -66,9 +67,7 @@ export async function handleMoneriumOrderPlacement(
     const orderMessage =
       typeof providedMessage === "string" && providedMessage.length > 0
         ? providedMessage
-        : `Send EUR ${amount} to ${iban} at ${new Date()
-            .toISOString()
-            .replace(/\.\d{3}Z$/, "Z")}`;
+        : buildOrderMessage(amount, iban);
 
     const orderPayload = {
       amount: amount.toString(),
