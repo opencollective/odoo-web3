@@ -155,9 +155,18 @@ export async function proposeSafeMessage(
 
   // M-of-N: sign with the server key and propose the message to the Safe
   // Transaction Service for the remaining owners to co-sign.
+  //
+  // Use EIP-712 typed-data signing (v=27/28), NOT eth_sign (v=31/32). Both are
+  // valid on-chain, but Monerium verifies "offchain" Safe signatures by
+  // recovering each owner signature itself, and an eth_sign component recovers to
+  // the wrong address there ("ecRecover: address mismatch"). Matching the Safe
+  // web app's EIP-712 signatures keeps every component consistent.
   const apiKit = getApiKit(chain);
   const safeMessage = protocolKit.createMessage(message);
-  const signed = await protocolKit.signMessage(safeMessage, SigningMethod.ETH_SIGN);
+  const signed = await protocolKit.signMessage(
+    safeMessage,
+    SigningMethod.ETH_SIGN_TYPED_DATA_V4
+  );
   const ourSignature: string = signed.encodedSignatures();
   const safeMessageHash = await safeMessageHashFor(protocolKit, message);
 

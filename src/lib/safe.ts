@@ -91,12 +91,13 @@ export async function signMessage(
 
   console.log(`📝 Created Safe message`);
 
-  // Sign the message using signMessage with ETH_SIGN for string messages
-  // Reference: "The signMessage method takes the safeMessage together with a SigningMethod"
-  // For string messages, use SigningMethod.ETH_SIGN
+  // Sign with EIP-712 typed data (v=27/28), NOT eth_sign (v=31/32). Monerium
+  // verifies "offchain" Safe signatures by recovering the owner signature itself,
+  // and an eth_sign signature recovers to the wrong address there ("ecRecover:
+  // address mismatch"). EIP-712 is also the canonical Safe message signature.
   const signedMessage = await protocolKit.signMessage(
     safeMessage,
-    SigningMethod.ETH_SIGN
+    SigningMethod.ETH_SIGN_TYPED_DATA_V4
   );
 
   console.log(`✍️ Message signed`);
