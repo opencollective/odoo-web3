@@ -112,17 +112,15 @@ export const handlePay = async (
   const amountToPay = invoice.amount_residual ?? invoice.amount_total;
 
   // Prepare order payload.
-  // Monerium accepts the signature only within ~5 minutes of the timestamp, so
-  // stamp it a few minutes ahead to absorb signing / unlock / network delays.
-  // Normalize the IBAN (no spaces) so the signed message matches the canonical
-  // order details (and the server's buildOrderMessage).
-  const SIGNATURE_VALIDITY_BUFFER_MS = 5 * 60 * 1000;
+  // Monerium accepts the signature for ~5 minutes AFTER the timestamp and the
+  // timestamp must not be in the future, so use the current time (a future
+  // timestamp is rejected as "timestamp is expired"). Normalize the IBAN (no
+  // spaces) so the signed message matches the canonical order details (and the
+  // server's buildOrderMessage).
   const normalizedIban = invoice.bank_account_number
     .toUpperCase()
     .replace(/\s/g, "");
-  const messageToSign = `Send EUR ${amountToPay} to ${normalizedIban} at ${new Date(
-    Date.now() + SIGNATURE_VALIDITY_BUFFER_MS
-  )
+  const messageToSign = `Send EUR ${amountToPay} to ${normalizedIban} at ${new Date()
     .toISOString()
     .replace(/\.\d{3}Z$/, "Z")}`;
 

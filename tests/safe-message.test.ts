@@ -1,9 +1,6 @@
 import { test, expect } from "bun:test";
 
-import {
-  buildOrderMessage,
-  SIGNATURE_VALIDITY_BUFFER_MS,
-} from "../src/server/api/monerium/safe-message.ts";
+import { buildOrderMessage } from "../src/server/api/monerium/safe-message.ts";
 import { getSafeMessagesUrl } from "../src/lib/safe-message.ts";
 
 test("buildOrderMessage produces the Monerium order format with a UTC timestamp", () => {
@@ -13,14 +10,15 @@ test("buildOrderMessage produces the Monerium order format with a UTC timestamp"
   );
 });
 
-test("buildOrderMessage stamps the timestamp ~5 minutes ahead for signing headroom", () => {
-  expect(SIGNATURE_VALIDITY_BUFFER_MS).toBe(5 * 60 * 1000);
+test("buildOrderMessage uses the current time, not a future timestamp", () => {
+  // Monerium rejects future-dated timestamps ("timestamp is expired"), so the
+  // message timestamp must be at/just-before now.
   const message = buildOrderMessage(1, "EE127310138155512606682602");
   const ts = Date.parse(message.match(/ at (.+)$/)![1]);
-  const aheadMs = ts - Date.now();
-  // Should be close to +5min (allow a few seconds of slack for execution time).
-  expect(aheadMs).toBeGreaterThan(SIGNATURE_VALIDITY_BUFFER_MS - 10_000);
-  expect(aheadMs).toBeLessThanOrEqual(SIGNATURE_VALIDITY_BUFFER_MS + 1_000);
+  const deltaMs = ts - Date.now();
+  // Within a couple of seconds of now and never in the future.
+  expect(deltaMs).toBeLessThanOrEqual(1_000);
+  expect(deltaMs).toBeGreaterThan(-5_000);
 });
 
 test("buildOrderMessage normalizes the IBAN (strips spaces, uppercases)", () => {
