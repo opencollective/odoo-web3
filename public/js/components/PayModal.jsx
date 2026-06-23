@@ -265,9 +265,9 @@ export function PayModal({
   const amountToShow = invoice.amount_residual ?? invoice.amount_total;
 
   // A multisig (M-of-N) Safe needs more than one signature, which a one-shot
-  // payment can't provide — Monerium rejects it ("signature no longer valid /
-  // address mismatch"). Such payments must go through the batch, which collects
-  // the extra signatures via the Safe Transaction Service.
+  // payment can't provide. These must go through the batch, which collects the
+  // signatures via the Safe Transaction Service and submits each order with the
+  // Safe's final aggregated signature once its threshold is met.
   const selectedAccountObj = availableAccounts.find(
     (acc) =>
       acc.address.toLowerCase() === (selectedAccountAddress || "").toLowerCase()
@@ -277,11 +277,12 @@ export function PayModal({
       typeof selectedAccountObj.threshold === "number" &&
       selectedAccountObj.threshold > 1
   );
+  const blockMultisigOneShot = allowBatch && isMultisigSafe;
 
   const payButtonDisabled =
     paying ||
     addressValidationError ||
-    (allowBatch && isMultisigSafe) ||
+    blockMultisigOneShot ||
     (recipientType === "partner" && !invoice.bank_account_number) ||
     (recipientType === "employee" && !selectedEmployee?.bank_account_number);
 
@@ -476,13 +477,14 @@ export function PayModal({
               )}
             </div>
           )}
-          {allowBatch && isMultisigSafe && (
+          {blockMultisigOneShot && (
             <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
               This is a {selectedAccountObj.threshold}-of-
-              {selectedAccountObj.signatories.length} Safe. A single signature
-              isn't enough to authorize this payment — use{" "}
-              <span className="font-medium">Add to batch</span> to collect the
-              required signatures from the other owners.
+              {selectedAccountObj.signatories.length} Safe, so it needs{" "}
+              {selectedAccountObj.threshold} signatures. Use{" "}
+              <span className="font-medium">Add to batch</span> — it collects the
+              signatures from the owners and submits the order once enough are
+              gathered.
             </div>
           )}
           <div>
@@ -570,7 +572,7 @@ export function PayModal({
                   !selectedEmployee?.bank_account_number)
               }
               className={
-                isMultisigSafe
+                blockMultisigOneShot
                   ? "inline-flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg transition-colors"
                   : "inline-flex items-center justify-center space-x-2 border border-green-600 text-green-700 hover:bg-green-50 disabled:border-gray-300 disabled:text-gray-400 px-4 py-2 rounded-lg transition-colors"
               }

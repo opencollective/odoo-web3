@@ -5,6 +5,7 @@ import {
   type SafeMessageStatus,
 } from "../../../lib/safe-message.ts";
 import type { SafeChain } from "../../../lib/safe.ts";
+import { normalizeIban } from "./utils.ts";
 
 // Monerium accepts an order signature only within ~5 minutes of the message
 // timestamp. Stamp it a few minutes in the future so the signature stays valid
@@ -21,7 +22,9 @@ export function buildOrderMessage(amount: number | string, iban: string): string
   const timestamp = new Date(Date.now() + SIGNATURE_VALIDITY_BUFFER_MS)
     .toISOString()
     .replace(/\.\d{3}Z$/, "Z");
-  return `Send EUR ${amount} to ${iban} at ${timestamp}`;
+  // Use the normalized IBAN (no spaces) so the signed message matches the
+  // canonical order details.
+  return `Send EUR ${amount} to ${normalizeIban(iban)} at ${timestamp}`;
 }
 
 function chainForEnvironment(environment?: string): SafeChain {

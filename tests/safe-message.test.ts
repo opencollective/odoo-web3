@@ -23,6 +23,12 @@ test("buildOrderMessage stamps the timestamp ~5 minutes ahead for signing headro
   expect(aheadMs).toBeLessThanOrEqual(SIGNATURE_VALIDITY_BUFFER_MS + 1_000);
 });
 
+test("buildOrderMessage normalizes the IBAN (strips spaces, uppercases)", () => {
+  const message = buildOrderMessage(100.91, "be86 0688 9108 3150");
+  expect(message).toContain("to BE86068891083150 at");
+  expect(message).not.toContain(" 0688 ");
+});
+
 test("getSafeMessagesUrl points at the Safe web app messages tab per chain", () => {
   const safe = "0xaF64295dc6BDD7eA310465AdB0f8Ac99Ae0Fe0C4";
   expect(getSafeMessagesUrl(safe, "gnosis")).toBe(

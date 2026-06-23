@@ -114,10 +114,15 @@ export const handlePay = async (
   // Prepare order payload.
   // Monerium accepts the signature only within ~5 minutes of the timestamp, so
   // stamp it a few minutes ahead to absorb signing / unlock / network delays.
+  // Normalize the IBAN (no spaces) so the signed message matches the canonical
+  // order details (and the server's buildOrderMessage).
   const SIGNATURE_VALIDITY_BUFFER_MS = 5 * 60 * 1000;
-  const messageToSign = `Send EUR ${amountToPay} to ${
-    invoice.bank_account_number
-  } at ${new Date(Date.now() + SIGNATURE_VALIDITY_BUFFER_MS)
+  const normalizedIban = invoice.bank_account_number
+    .toUpperCase()
+    .replace(/\s/g, "");
+  const messageToSign = `Send EUR ${amountToPay} to ${normalizedIban} at ${new Date(
+    Date.now() + SIGNATURE_VALIDITY_BUFFER_MS
+  )
     .toISOString()
     .replace(/\.\d{3}Z$/, "Z")}`;
 
@@ -170,6 +175,12 @@ export const handlePay = async (
     firstName,
     lastName,
     signature: signature || undefined,
+    // When the wallet signed client-side, the server MUST submit the exact same
+    // message (same timestamp) — otherwise it rebuilds a different one and the
+    // signature no longer matches ("signature no longer valid / address
+    // mismatch"). For server-side signing, leave it unset so the server stamps
+    // a fresh timestamp at signing time.
+    message: signature ? messageToSign : undefined,
   };
 
   let response = await fetch("/api/monerium/order", {
