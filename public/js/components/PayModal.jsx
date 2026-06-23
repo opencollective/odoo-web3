@@ -15,18 +15,27 @@ function getChainPrefix(chain) {
 }
 
 function getValidationError(account, signerAddress) {
-  if (!account || account.usable !== false) return null;
+  if (!account) return null;
   // Signer unknown (server key locked / not yet unlocked and no wallet connected).
   // Don't fabricate a "(null) is not a signatory" error and don't block Pay —
   // the pay flow will prompt for the passphrase and validate once unlocked.
   if (!signerAddress) return null;
-  if (
-    account.validationError &&
-    typeof account.validationError === "object" &&
-    account.validationError.message
-  ) {
-    return account.validationError;
-  }
+
+  // Validate FRESH against the current signer rather than trusting the upstream
+  // `account.usable` flag, which may be stale (computed before the wallet address
+  // loaded) and would otherwise produce a false "not a signatory" error.
+  const signer = signerAddress.toLowerCase();
+  if (account.address?.toLowerCase() === signer) return null;
+
+  const signatories = Array.isArray(account.signatories)
+    ? account.signatories
+    : null;
+  // Can't determine ownership (not a Safe, or signatories not loaded yet) — don't
+  // block; let the payment attempt surface any real error.
+  if (!signatories || signatories.length === 0) return null;
+  if (signatories.some((s) => s.toLowerCase() === signer)) return null;
+
+  // Signatories are known and the signer is genuinely not among them.
   return {
     message: `The address (${signerAddress}) is not the owner or a signatory of this account.`,
     safeUrl: `https://app.safe.global/settings/setup?safe=${getChainPrefix(account.chain)}:${account.address}`,
@@ -115,7 +124,7 @@ export function PayModal({
     setAddressValidationError(
       getValidationError(selectedAccount, wallet?.signerAddress)
     );
-  }, [selectedAccountAddress, availableAccounts, wallet?.walletAddress]);
+  }, [selectedAccountAddress, availableAccounts, wallet?.signerAddress]);
 
   const handleClose = () => {
     if (paying) return;
