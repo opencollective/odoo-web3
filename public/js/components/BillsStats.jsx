@@ -90,10 +90,16 @@ export function BillsStats({
   // Calculate total to pay from ready-to-pay invoices
   const totalToPay = useMemo(() => {
     return invoices.reduce((sum, invoice) => {
+      // Partially paid bills still have a remaining balance to pay, so count
+      // their residual — never treat them as fully paid (even if flagged locally).
+      const isPartiallyPaid =
+        invoice.payment_state === "partial" &&
+        (invoice.amount_residual ?? 0) > 0;
       const isPaid =
-        invoice.payment_state === "paid" ||
-        isInvoicePaid(invoice.id) ||
-        (invoice.amount_residual != null && invoice.amount_residual === 0);
+        !isPartiallyPaid &&
+        (invoice.payment_state === "paid" ||
+          isInvoicePaid(invoice.id) ||
+          (invoice.amount_residual != null && invoice.amount_residual === 0));
       const hasBankAccount = Boolean(invoice.bank_account_number);
       const isDraft = invoice.state === "draft";
       const isIncoming =

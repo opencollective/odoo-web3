@@ -901,6 +901,72 @@ test("getLatestInvoices - filter by date range (since + until)", async () => {
   }
 });
 
+test("getLatestInvoices - payment_state filter includes partial bills", async () => {
+  if (!isOdooConfigured()) {
+    console.log("⏭️  Skipping: Odoo environment variables not configured");
+    return;
+  }
+
+  const config: OdooConfig = {
+    url: process.env.ODOO_URL || "",
+    database: process.env.ODOO_DATABASE || "",
+    username: process.env.ODOO_USERNAME || "",
+    password: process.env.ODOO_PASSWORD || "",
+  };
+
+  const odooClient = new OdooClient(config);
+  await odooClient.authenticate();
+
+  // A bill that is partially paid still has a remaining balance and must be
+  // returned when the "ready to pay" view asks for not_paid + partial bills.
+  const invoices = await odooClient.getLatestInvoices(
+    100,
+    "incoming",
+    undefined,
+    undefined,
+    { state: "posted", paymentState: "not_paid,partial" }
+  );
+
+  console.log(
+    `\n💸 not_paid + partial incoming bills: ${invoices.length} found`
+  );
+
+  expect(Array.isArray(invoices)).toBe(true);
+
+  // Every returned bill must be in one of the requested payment states — and
+  // crucially never "paid" (which would mean nothing left to pay).
+  for (const inv of invoices) {
+    expect(["not_paid", "partial"]).toContain(inv.payment_state);
+    expect(inv.payment_state).not.toBe("paid");
+  }
+
+  // A single-state filter must keep working too (no "in" operator misuse).
+  const notPaidOnly = await odooClient.getLatestInvoices(
+    100,
+    "incoming",
+    undefined,
+    undefined,
+    { state: "posted", paymentState: "not_paid" }
+  );
+  for (const inv of notPaidOnly) {
+    expect(inv.payment_state).toBe("not_paid");
+  }
+
+  // The combined filter is a superset of not_paid-only.
+  expect(invoices.length).toBeGreaterThanOrEqual(notPaidOnly.length);
+
+  const partials = invoices.filter((i) => i.payment_state === "partial");
+  console.log(`  ↳ of which partially paid: ${partials.length}`);
+  partials.slice(0, 3).forEach((inv) => {
+    console.log(
+      `    ${inv.name}: residual ${inv.amount_residual} of ${inv.amount_total}`
+    );
+    // A partial bill always has a positive remaining balance below its total.
+    expect(inv.amount_residual).toBeGreaterThan(0);
+    expect(inv.amount_residual).toBeLessThan(inv.amount_total);
+  });
+});
+
 test("getLatestInvoices - verify payment information", async () => {
   if (!isOdooConfigured()) {
     console.log("⏭️  Skipping: Odoo environment variables not configured");

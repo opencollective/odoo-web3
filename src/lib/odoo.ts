@@ -1281,9 +1281,19 @@ export class OdooClient {
       domain.push(["state", "=", options.state]);
     }
 
-    // Add payment_state filter (e.g. "not_paid" to exclude already paid)
+    // Add payment_state filter (e.g. "not_paid" to exclude already paid).
+    // Accepts a comma-separated list (e.g. "not_paid,partial") to include
+    // partially paid bills, which still have a remaining balance to pay.
     if (options?.paymentState) {
-      domain.push(["payment_state", "=", options.paymentState]);
+      const states = options.paymentState
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (states.length === 1) {
+        domain.push(["payment_state", "=", states[0]]);
+      } else if (states.length > 1) {
+        domain.push(["payment_state", "in", states]);
+      }
     }
 
     try {

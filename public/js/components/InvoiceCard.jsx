@@ -65,8 +65,14 @@ export function InvoiceCard({
     posted: "bg-green-100 text-green-800",
     cancel: "bg-red-100 text-red-800",
   }[invoice.state];
+  // Odoo reports a remaining balance: treat as not paid even if a (full) payment
+  // was optimistically recorded locally, so the remainder can still be paid.
+  const isPartiallyPaid =
+    invoice.payment_state === "partial" &&
+    (invoice.amount_residual ?? 0) > 0;
   const isPaid =
-    invoice.payment_state === "paid" || Boolean(paySuccess) || isPaidLocally;
+    !isPartiallyPaid &&
+    (invoice.payment_state === "paid" || Boolean(paySuccess) || isPaidLocally);
   const paymentStateColor = isPaid ? "bg-green-100 text-green-800" : null;
 
   const openInOdoo = (e) => {
@@ -78,7 +84,7 @@ export function InvoiceCard({
   const canPay =
     typeof onPay === "function" &&
     invoice.payment_state !== "paid" &&
-    !isPaidLocally &&
+    (isPartiallyPaid || !isPaidLocally) &&
     !batched &&
     invoice.state !== "draft" &&
     !paySuccess &&

@@ -89,11 +89,18 @@ export function App() {
     if (filters.status === "all") return invoices;
 
     return invoices.filter((invoice) => {
+      // A bill Odoo reports as partially paid still has a remaining balance to
+      // pay, so it must never be treated as paid — not even if a (full) payment
+      // was optimistically recorded locally.
+      const isPartiallyPaid =
+        invoice.payment_state === "partial" &&
+        (invoice.amount_residual ?? 0) > 0;
       // Check if paid: payment_state, local storage, or amount_residual is 0
       const isPaid =
-        invoice.payment_state === "paid" ||
-        isInvoicePaid(invoice.id) ||
-        (invoice.amount_residual != null && invoice.amount_residual === 0);
+        !isPartiallyPaid &&
+        (invoice.payment_state === "paid" ||
+          isInvoicePaid(invoice.id) ||
+          (invoice.amount_residual != null && invoice.amount_residual === 0));
       const hasBankAccount = Boolean(invoice.bank_account_number);
       const isDraft = invoice.state === "draft";
       const isIncomingInvoice = invoice.move_type === "in_invoice" || invoice.move_type === "in_refund";
@@ -291,7 +298,8 @@ export function App() {
     // Server-side filtering: exclude drafts and paid invoices for relevant views
     if (filters.status === "ready_to_pay" || filters.status === "missing_bank") {
       params.append("state", "posted");
-      params.append("payment_state", "not_paid");
+      // Include partially paid bills: they still have a remaining balance to pay.
+      params.append("payment_state", "not_paid,partial");
     }
 
     try {
