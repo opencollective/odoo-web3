@@ -34,8 +34,14 @@ export const handlePay = async (
     throw new Error("This invoice does not have a bank account number.");
   }
 
+  // A bill Odoo reports as partially paid still has a remaining balance to pay,
+  // so the (optimistic) local "paid" flag must not block paying the remainder.
+  const isPartiallyPaid =
+    invoice.payment_state === "partial" &&
+    (invoice.amount_residual ?? 0) > 0;
+
   // Check if invoice was already paid
-  if (!force && isInvoicePaid(invoice.id)) {
+  if (!force && !isPartiallyPaid && isInvoicePaid(invoice.id)) {
     throw new Error("This invoice has already been paid.");
   }
 
